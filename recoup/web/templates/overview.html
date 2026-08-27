@@ -35,7 +35,15 @@
     <span class="s">treatment arm, {{ ov.treatment.recovered_events }} events recovered</span>
   </div>
   <div class="tile">
-    <span class="k">cannibalised</span>
+    {#
+      Labelled "organic", not "cannibalised". This tile shows the counterfactual -
+      revenue that would have arrived with no intervention at all - while
+      cannibalisation is the far smaller sum actually SPENT on those customers,
+      and the sweep table below uses the word in that second sense. One word for
+      two quantities put Rs 99,100 on this page against Rs 0 in the terminal
+      report for what a reader would reasonably take to be the same number.
+    #}
+    <span class="k">organic</span>
     <span class="v dim">{{ ov.counterfactual_paise|rupees }}</span>
     <span class="s">
       would have arrived anyway
@@ -109,6 +117,15 @@
       not what share of tickets did, and with this amount distribution the two
       are not close. The holdout is {{ ov.control.value_paise|crupees }} of
       at-risk value deliberately left untouched.
+      <br><br>
+      <strong>This differs from the figure <code>scripts/run_eval.py</code>
+      prints, and should.</strong> That report weights by event, so every
+      recovery counts once regardless of size; this page weights by rupee. With
+      70% of at-risk value sitting in 12% of events the two diverge sharply, and
+      neither is wrong - they answer different questions. The report also derives
+      lift from per-event attribution against the frozen counterfactual, which a
+      real deployment could not do; the arm difference shown here is what a live
+      merchant could actually measure.
     </p>
   </section>
 

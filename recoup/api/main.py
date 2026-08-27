@@ -3,7 +3,7 @@
 There is exactly one thing this application has to make effortless: pick any
 event and see the whole chain of reasoning that led to what happened to it -
 what failed, what the scorer thought it was worth, what was proposed and by
-whom, which of the thirteen bounds were checked, what executed, and whether the
+whom, which bounds were checked, what executed, and whether the
 money came back. Everything else here is navigation to that page.
 
 No writes. No Razorpay calls. No LLM. If this process died mid-demo the pipeline
@@ -45,6 +45,10 @@ templates.env.filters.update(FILTERS)
 templates.env.globals.update(
     profile_for=profile_for,
     rule_count=len(RULES),
+    # 13 bounds plus one input-validation gate. Counting the gate as a bound
+    # would put 14 on the page against 13 in the README, and a reader who
+    # notices has no way to tell which document is wrong.
+    bound_count=len(RULES) - 1,
     cohorts=list(Cohort),
     statuses=list(EventStatus),
     verdicts=list(PolicyVerdict),
@@ -152,7 +156,7 @@ def event_detail(
 @app.get("/policy", response_class=HTMLResponse)
 def policy(request: Request, session: Session = Depends(db)) -> HTMLResponse:
     ctx = _base(session, "policy")
-    ctx["bounds"] = read.bounds_table()
+    ctx["bounds"] = read.bounds_table(session)
     ctx["rules"] = read.rule_stats(session) if ctx["ready"] else []
     return templates.TemplateResponse(request, "policy.html", ctx)
 

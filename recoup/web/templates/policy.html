@@ -8,12 +8,12 @@
   The model proposes; this engine disposes. Everything below runs <i>after</i>
   the agent has spoken, on every decision, with no short-circuiting &mdash; and
   the passes are recorded alongside the failures, because "permitted because
-  {{ rule_count }} bounds were checked and cleared" is a claim a list of
+  {{ rule_count }} checks were run and cleared" is a claim a list of
   failures cannot support.
 </p>
 
 <section class="panel">
-  <h2>Limits, read live from <code>recoup/policy/rules.py</code></h2>
+  <h2>Limits, as applied by the last run</h2>
   <table class="grid bounds">
     <thead><tr><th>bound</th><th class="n">value</th><th>why</th></tr></thead>
     <tbody>
@@ -41,8 +41,12 @@
     </tbody>
   </table>
   <p class="note">
-    Values and reasons are read out of the dataclass and its source at request
-    time, so this page cannot quietly drift from the engine that enforces it.
+    Values come from the bounds snapshotted on the most recent PolicyReview, so
+    this page reports what actually governed a decision rather than what the
+    source file currently says. Reading the defaults instead made it truthful
+    only by coincidence: with a loosened override in play it would have shown a
+    Rs 25,000 autonomy limit for a run that had none. Justifications are still
+    parsed from the dataclass, so a bound cannot be added without one.
   </p>
 </section>
 

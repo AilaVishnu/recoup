@@ -149,7 +149,7 @@
       {% if stage.review %}
       <header>
         <h2>
-          {{ stage.cleared }} of {{ stage.checks|length }} bounds cleared
+          {{ stage.cleared }} of {{ stage.checks|length }} checks cleared
           <span class="pill v-{{ stage.review.verdict.value }}">{{ stage.review.verdict.value }}</span>
         </h2>
         <span class="meta">{{ stage.review.created_at|ist }}</span>

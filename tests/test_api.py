@@ -368,7 +368,7 @@ def test_detail_renders_every_policy_check(client):
     for name in checks:
         assert name in body, f"policy check {name} missing from the replay"
     assert body.count("PASS") == len(RULES)
-    assert f"{len(RULES)} of {len(RULES)} bounds cleared" in body
+    assert f"{len(RULES)} of {len(RULES)} checks cleared" in body
 
 
 def test_detail_shows_the_full_chain(client):

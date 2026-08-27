@@ -382,12 +382,37 @@ def _bound_docs() -> dict[str, str]:
     return docs
 
 
-def bounds_table() -> list[BoundRow]:
-    bounds = policy_rules.DEFAULT_BOUNDS
+def bounds_table(session: Session | None = None) -> list[BoundRow]:
+    """The limits that actually governed the last run, not the ones in the source.
+
+    Reading DEFAULT_BOUNDS here made the page truthful only by coincidence. A
+    reviewer put it plainly: with a loosened override in play, /policy reported a
+    Rs 25,000 autonomy limit for a run that had none. Overrides are clamped now,
+    so the two agree again - but agreeing by construction and agreeing by luck
+    are different properties, and only one of them survives the next change.
+
+    Every PolicyReview snapshots the bounds in force, so the page reads them from
+    the run itself and falls back to the defaults only when there is no run to
+    describe.
+    """
     docs = _bound_docs()
+    defaults = policy_rules.DEFAULT_BOUNDS
+
+    applied: dict[str, Any] = {}
+    if session is not None:
+        row = session.scalars(
+            select(PolicyReview).order_by(PolicyReview.id.desc()).limit(1)
+        ).first()
+        if row and row.bounds:
+            applied = row.bounds
+
     return [
-        BoundRow(name=f.name, value=getattr(bounds, f.name), why=docs.get(f.name, ""))
-        for f in fields(bounds)
+        BoundRow(
+            name=f.name,
+            value=applied.get(f.name, getattr(defaults, f.name)),
+            why=docs.get(f.name, ""),
+        )
+        for f in fields(defaults)
     ]
 
 
