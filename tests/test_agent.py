@@ -29,7 +29,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from recoup.agent import brain, prompts, rules_engine
+from recoup.agent import brain, providers, prompts, rules_engine
 from recoup.agent.decide import decide
 from recoup.agent.router import should_escalate_to_model
 from recoup.db import (
@@ -322,9 +322,10 @@ def test_the_brief_states_whether_an_incentive_is_permitted():
 def no_api_key(monkeypatch):
     """Force the keyless path regardless of the developer's environment."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setattr(
-        brain.config, "get_settings", lambda: SimpleNamespace(anthropic_api_key="")
-    )
+    # Only the key check is stubbed. missing_key_note() runs for real so the
+    # rationale names the env var the active provider actually wants - which
+    # differs by provider, and is the whole reason the note is not a constant.
+    monkeypatch.setattr(providers, "key_available", lambda: False)
 
 
 def test_brain_falls_back_to_rules_with_no_api_key(no_api_key):
@@ -346,11 +347,13 @@ def fake_key(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-not-a-real-key")
 
 
-def _raising_client(exc: Exception):
-    def create(**kwargs):
+def _raising_provider(exc: Exception):
+    """A provider that always fails. Vendor-agnostic, like the layer it stubs."""
+
+    def call(**_kwargs):
         raise exc
 
-    return SimpleNamespace(messages=SimpleNamespace(create=create))
+    return call
 
 
 def _request() -> httpx2.Request:
@@ -358,33 +361,27 @@ def _request() -> httpx2.Request:
 
 
 @pytest.mark.parametrize(
-    "exc, expected",
+    "note, expected",
     [
-        (
-            anthropic.RateLimitError(
-                "429", response=httpx2.Response(429, request=_request()), body=None
-            ),
-            "rate-limited",
-        ),
-        (
-            anthropic.APIStatusError(
-                "500", response=httpx2.Response(500, request=_request()), body=None
-            ),
-            "provider error",
-        ),
-        (
-            anthropic.APIStatusError(
-                "400", response=httpx2.Response(400, request=_request()), body=None
-            ),
-            "rejected our request",
-        ),
-        (anthropic.APIConnectionError(request=_request()), "could not reach"),
+        ("model rate-limited", "rate-limited"),
+        ("model provider error (HTTP 500)", "provider error"),
+        ("rejected our request (HTTP 400)", "rejected our request"),
+        ("could not reach the model", "could not reach"),
     ],
     ids=["rate_limit", "server_error", "bad_request", "connection"],
 )
-def test_every_api_failure_degrades_to_rules(monkeypatch, fake_key, exc, expected):
-    """Distinct causes, one behaviour: the event still gets a decision."""
-    monkeypatch.setattr(brain, "_client", lambda: _raising_client(exc))
+def test_every_api_failure_degrades_to_rules(monkeypatch, fake_key, note, expected):
+    """Distinct causes, one behaviour: the event still gets a decision.
+
+    Parametrised on the note rather than on SDK exception classes. Translating
+    a vendor exception into a ProviderError is the adapter's job and is tested
+    at that level; what brain.propose() promises is that no provider failure,
+    whatever raised it, leaves an event without a decision.
+    """
+    monkeypatch.setattr(providers, "key_available", lambda: True)
+    monkeypatch.setattr(
+        providers, "call", _raising_provider(providers.ProviderError(note))
+    )
     event = make_event(reason_code="issuer_down")
     action, _, rationale, usage = brain.propose(
         event, make_assessment(event), make_customer()
@@ -399,15 +396,24 @@ def test_every_api_failure_degrades_to_rules(monkeypatch, fake_key, exc, expecte
 # ---------------------------------------------------------------------------
 
 
-def fake_response(payload, stop_reason: str = "end_turn"):
-    text = payload if isinstance(payload, str) else json.dumps(payload)
-    return SimpleNamespace(
-        stop_reason=stop_reason,
-        content=[
-            SimpleNamespace(type="thinking", thinking=""),
-            SimpleNamespace(type="text", text=text),
-        ],
-        usage=SimpleNamespace(input_tokens=1200, output_tokens=300),
+def _text_of(payload) -> str:
+    """The model's raw reply as text. _validate parses text now.
+
+    Handing it an Anthropic-shaped response object was the single thing that
+    made this suite unable to exercise any provider but one.
+    """
+    return payload if isinstance(payload, str) else json.dumps(payload)
+
+
+def fake_reply(text: str, *, truncated: bool = False, refused: bool = False):
+    """A normalised ModelReply, as any adapter would return."""
+    return providers.ModelReply(
+        text=text,
+        model="test-model",
+        input_tokens=1200,
+        output_tokens=300,
+        truncated=truncated,
+        refused=refused,
     )
 
 
@@ -425,7 +431,7 @@ def good_payload(**overrides):
 
 def test_a_well_formed_proposal_survives_validation():
     event = make_event(reason_code="payment_cancelled")
-    result = brain._validate(fake_response(good_payload()), event)
+    result = brain._validate(_text_of(good_payload()), event)
     assert result is not None
     action, params, rationale = result
     assert action is ActionType.NUDGE
@@ -447,21 +453,21 @@ def test_a_well_formed_proposal_survives_validation():
 )
 def test_malformed_model_output_is_rejected(payload):
     event = make_event(reason_code="payment_cancelled")
-    assert brain._validate(fake_response(payload), event) is None
+    assert brain._validate(_text_of(payload), event) is None
 
 
 def test_a_retry_on_a_do_not_retry_reason_is_rejected_outright():
     """Policy would deny it anyway; letting it through only pollutes the trail."""
     event = make_event(reason_code="fraud_suspected")
     payload = good_payload(action_type="retry_payment")
-    assert brain._validate(fake_response(payload), event) is None
+    assert brain._validate(_text_of(payload), event) is None
 
 
 def test_a_discount_on_a_technical_failure_is_stripped_not_rejected():
     """The nudge is still worth sending. Only the margin burn is removed."""
     event = make_event(reason_code="issuer_down")
     payload = good_payload(action_type="nudge_with_incentive", incentive_paise=200_00)
-    action, params, rationale = brain._validate(fake_response(payload), event)
+    action, params, rationale = brain._validate(_text_of(payload), event)
     assert action is ActionType.NUDGE
     assert params["incentive_paise"] == 0
     assert "discount removed" in rationale
@@ -470,7 +476,7 @@ def test_a_discount_on_a_technical_failure_is_stripped_not_rejected():
 def test_negative_incentives_are_clamped():
     event = make_event(reason_code="payment_cancelled")
     payload = good_payload(action_type="nudge_with_incentive", incentive_paise=-500_00)
-    action, params, _ = brain._validate(fake_response(payload), event)
+    action, params, _ = brain._validate(_text_of(payload), event)
     assert params["incentive_paise"] == 0
     assert action is ActionType.NUDGE, "an incentive action with no incentive is a nudge"
 
@@ -478,24 +484,29 @@ def test_negative_incentives_are_clamped():
 def test_an_unrecognised_rail_is_dropped():
     event = make_event(reason_code="card_expired")
     payload = good_payload(action_type="payment_link", rail="cheque")
-    _, params, _ = brain._validate(fake_response(payload), event)
+    _, params, _ = brain._validate(_text_of(payload), event)
     assert params["rail"] is None
 
 
 def test_absurd_delays_are_clamped_to_the_outcome_window():
     event = make_event(reason_code="payment_cancelled")
     payload = good_payload(delay_hours=10_000)
-    _, params, _ = brain._validate(fake_response(payload), event)
+    _, params, _ = brain._validate(_text_of(payload), event)
     assert params["delay_hours"] == brain.MAX_DELAY_HOURS
 
 
-@pytest.mark.parametrize("stop_reason", ["max_tokens", "refusal"])
-def test_an_incomplete_response_degrades_to_rules(monkeypatch, fake_key, stop_reason):
-    response = fake_response(good_payload(), stop_reason=stop_reason)
+@pytest.mark.parametrize("flaw", ["truncated", "refused"])
+def test_an_incomplete_response_degrades_to_rules(monkeypatch, fake_key, flaw):
+    response = fake_reply(
+        _text_of(good_payload()),
+        truncated=flaw == "truncated",
+        refused=flaw == "refused",
+    )
+    monkeypatch.setattr(providers, "key_available", lambda: True)
     monkeypatch.setattr(
-        brain,
-        "_client",
-        lambda: SimpleNamespace(messages=SimpleNamespace(create=lambda **kw: response)),
+        providers,
+        "call",
+        lambda **kw: response,
     )
     event = make_event(reason_code="payment_cancelled", amount_paise=8_000_00)
     _, _, rationale, usage = brain.propose(event, make_assessment(event), make_customer())

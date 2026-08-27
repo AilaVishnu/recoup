@@ -1,6 +1,7 @@
 # --- Razorpay + AI ---
 razorpay==1.4.2
 anthropic>=0.40.0
+openai>=1.50.0    # also covers Groq, Gemini, OpenRouter, Together, Ollama via base_url
 
 # --- Data / persistence ---
 SQLAlchemy>=2.0.30

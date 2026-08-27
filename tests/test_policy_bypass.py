@@ -18,7 +18,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
 from recoup import pipeline
-from recoup.agent import brain
+from recoup.agent import brain, providers
 from recoup.db import (
     ActionStatus,
     ActionType,
@@ -91,7 +91,7 @@ def offline(monkeypatch):
         "_require_client",
         lambda: pytest.fail("dry run reached the network"),
     )
-    monkeypatch.setattr(brain, "_api_key_available", lambda: False)
+    monkeypatch.setattr(providers, "key_available", lambda: False)
 
 
 def ctx(**overrides) -> ReviewContext:

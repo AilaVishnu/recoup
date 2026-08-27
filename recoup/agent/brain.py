@@ -32,10 +32,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
-import anthropic
-
 from recoup import config
-from recoup.agent import prompts, rules_engine
+from recoup.agent import prompts, providers, rules_engine
 from recoup.agent.rules_engine import Params
 from recoup.db import ActionType, Assessment, Customer, RevenueEvent
 from recoup.taxonomy import Rail, Strategy, profile_for
@@ -117,35 +115,6 @@ class Usage:
     itself without anyone having to correlate log lines."""
 
 
-@lru_cache(maxsize=1)
-def _client() -> anthropic.Anthropic:
-    """One client for the process.
-
-    The SDK already retries 429s, 5xx and connection failures with backoff
-    (max_retries), so there is no hand-rolled retry loop below - just a chain
-    that classifies whatever survived it.
-    """
-    return anthropic.Anthropic(max_retries=2)
-
-
-def _api_key_available() -> bool:
-    """True if a key is reachable, bridging .env into the process environment.
-
-    Settings reads ANTHROPIC_API_KEY from .env via pydantic-settings, but the
-    SDK's zero-argument constructor reads os.environ. Without this bridge the
-    project would run the model path from a shell export and silently fall back
-    to rules from a .env file, which is the kind of difference that is only ever
-    noticed in a demo.
-    """
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return True
-    key = config.get_settings().anthropic_api_key
-    if key:
-        os.environ["ANTHROPIC_API_KEY"] = key
-        return True
-    return False
-
-
 def propose(
     event: RevenueEvent, assessment: Assessment, customer: Customer
 ) -> tuple[ActionType, Params, str, Usage]:
@@ -154,58 +123,37 @@ def propose(
     Never raises on an API failure. Every path returns a usable proposal; the
     Usage object says whether it came from the model.
     """
-    if not _api_key_available():
-        return _fallback(
-            event,
-            assessment,
-            customer,
-            "no ANTHROPIC_API_KEY configured, so the taxonomy decided this one",
-        )
+    if not providers.key_available():
+        return _fallback(event, assessment, customer, providers.missing_key_note())
 
     try:
-        response = _client().messages.create(
-            model=config.DECISION_MODEL,
-            max_tokens=MAX_TOKENS,
+        reply = providers.call(
             system=prompts.system_prompt(),
-            messages=[{"role": "user", "content": prompts.event_brief(event, assessment)}],
-            thinking={"type": "adaptive"},
-            output_config={
-                "effort": config.DECISION_EFFORT,
-                "format": {"type": "json_schema", "schema": DECISION_SCHEMA},
-            },
+            user=prompts.event_brief(event, assessment),
+            schema=DECISION_SCHEMA,
+            max_tokens=MAX_TOKENS,
         )
-    except anthropic.RateLimitError:
-        # Do not sleep and retry here. Recoup decides events in batches, so a 429
-        # means the whole batch is about to hit the same wall - waiting turns one
-        # slow event into a slow run. The taxonomy answer is available instantly
-        # and is the right answer most of the time anyway.
-        return _fallback(event, assessment, customer, "model rate-limited")
-    except anthropic.APIStatusError as exc:
-        # 4xx is our bug (bad schema, bad model id, revoked key) and 5xx is
-        # theirs. Both are already past the SDK's retries by the time they reach
-        # here, so the distinction is for the audit trail, not for control flow.
-        blame = "model provider error" if exc.status_code >= 500 else "rejected our request"
-        return _fallback(
-            event, assessment, customer, f"{blame} (HTTP {exc.status_code})"
-        )
-    except anthropic.APIConnectionError:
-        # Includes APITimeoutError. The network, not the model.
-        return _fallback(event, assessment, customer, "could not reach the model")
+    except providers.ProviderError as exc:
+        # Every provider failure lands here and falls back to the taxonomy.
+        # Distinguishing a 429 from a DNS failure would change nothing about
+        # what Recoup does next; the reason travels into the audit trail, which
+        # is where it is actually read.
+        return _fallback(event, assessment, customer, exc.note)
 
     usage = Usage(
-        model=config.DECISION_MODEL,
-        input_tokens=response.usage.input_tokens,
-        output_tokens=response.usage.output_tokens,
+        model=reply.model,
+        input_tokens=reply.input_tokens,
+        output_tokens=reply.output_tokens,
     )
 
-    if response.stop_reason == "max_tokens":
+    if reply.truncated:
         return _fallback(
             event, assessment, customer, "model response truncated before it was valid", usage
         )
-    if response.stop_reason == "refusal":
+    if reply.refused:
         return _fallback(event, assessment, customer, "model declined to answer", usage)
 
-    parsed = _validate(response, event)
+    parsed = _validate(reply.text, event)
     if parsed is None:
         return _fallback(
             event, assessment, customer, "model output failed validation", usage
@@ -220,8 +168,26 @@ def propose(
 # ---------------------------------------------------------------------------
 
 
+def _strip_code_fence(text: str) -> str:
+    """Unwrap ```json ... ``` if a model wrapped its answer in one.
+
+    Not cosmetic tolerance. Endpoints without json_schema support are exactly
+    the ones that fence their output, so refusing a fenced body would make the
+    free-tier providers look worse than they are - the JSON inside is usually
+    perfectly good, and everything after this still has to pass validation
+    unchanged.
+    """
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return stripped
+    body = stripped.split("\n", 1)[-1]
+    if body.rstrip().endswith("```"):
+        body = body.rstrip()[: -len("```")]
+    return body.strip()
+
+
 def _validate(
-    response: Any, event: RevenueEvent
+    text: str | None, event: RevenueEvent
 ) -> tuple[ActionType, Params, str] | None:
     """Turn a model response into a proposal, or None if it is not usable.
 
@@ -232,11 +198,10 @@ def _validate(
     detail on an otherwise sensible proposal, so it is stripped and the rest
     kept - policy still gets to rule on what is left.
     """
-    text = next((b.text for b in response.content if b.type == "text"), None)
     if not text:
         return None
     try:
-        raw = json.loads(text)
+        raw = json.loads(_strip_code_fence(text))
     except (json.JSONDecodeError, TypeError):
         return None
     if not isinstance(raw, dict):

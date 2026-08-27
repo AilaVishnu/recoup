@@ -83,17 +83,32 @@ def check_razorpay(settings) -> bool:
     return True
 
 
-def check_anthropic(settings) -> bool:
-    if not settings.anthropic_configured:
+def check_llm(settings) -> bool:
+    from recoup.agent import providers
+
+    provider = providers.active_provider()
+    console.print(f"  provider   {provider}")
+    if settings.llm_base_url:
+        console.print(f"  endpoint   {settings.llm_base_url}")
+    if settings.llm_model:
+        console.print(f"  model      {settings.llm_model}")
+
+    if not providers.key_available():
+        console.print(f"{WARN} {providers.missing_key_note()}")
         console.print(
-            f"{WARN} ANTHROPIC_API_KEY empty - the agent falls back to the rules engine."
+            "       [dim]The pipeline still runs end to end - the agent falls back to "
+            "the rules engine and records those decisions as RULES, not LLM. What you "
+            "lose is the ~20% of genuinely ambiguous events, which are the interesting "
+            "ones, and every incentive path with them: cannibalisation stays at zero "
+            "because no discount is ever proposed.[/]"
         )
         console.print(
-            "       [dim]The pipeline still runs end to end. You lose the ambiguous "
-            "decisions, which are the interesting ones.[/]"
+            "       [dim]Free options needing no card: Google Gemini "
+            "(aistudio.google.com) or Groq (console.groq.com). See .env.example.[/]"
         )
         return False
-    console.print(f"{OK} Anthropic key present ({mask(settings.anthropic_api_key, 10)})")
+
+    console.print(f"{OK} decision model reachable ({mask(settings.llm_api_key, 10)})")
     return True
 
 
@@ -130,8 +145,8 @@ def main() -> int:
     console.print("\n[bold]Razorpay[/]")
     razorpay_ok = check_razorpay(settings)
 
-    console.print("\n[bold]Anthropic[/]")
-    check_anthropic(settings)
+    console.print("\n[bold]Decision model[/]")
+    check_llm(settings)
 
     console.print("\n[bold]Data[/]")
     check_database()
