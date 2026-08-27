@@ -1,0 +1,5 @@
+<section class="empty">
+  <h2>{{ empty_title|default("Nothing to show yet") }}</h2>
+  <p>{{ empty_hint|default("The audit trail is empty.") }}</p>
+  {% if empty_command %}<pre>{{ empty_command }}</pre>{% endif %}
+</section>

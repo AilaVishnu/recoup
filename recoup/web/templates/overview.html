@@ -1,0 +1,318 @@
+{% extends "base.html" %}
+{% block title %}Recoup{% endblock %}
+
+{% block content %}
+
+<h1>Revenue at risk</h1>
+<p class="lede">
+  Everything on this page is computed from the audit trail, not from a report
+  file. Gross recovery is what a vendor without a holdout would put on the
+  slide; incremental recovery is what is left once the holdout has priced the
+  money that was coming back anyway.
+</p>
+
+{% if not ready %}
+  {% set empty_title = "No database yet" %}
+  {% set empty_hint = "Recoup reads data/recoup.db. Build the synthetic merchant first." %}
+  {% set empty_command = "python scripts/seed.py" %}
+  {% include "_empty.html" %}
+{% elif not ov or ov.events == 0 %}
+  {% set empty_title = "The database is empty" %}
+  {% set empty_hint = "Tables exist but no revenue events have been generated." %}
+  {% set empty_command = "python scripts/seed.py --events 600 --customers 220" %}
+  {% include "_empty.html" %}
+{% else %}
+
+<section class="tiles">
+  <div class="tile">
+    <span class="k">value at risk</span>
+    <span class="v">{{ ov.value_at_risk_paise|rupees }}</span>
+    <span class="s">{{ ov.events }} events &middot; {{ ov.value_at_risk_paise|crupees }}</span>
+  </div>
+  <div class="tile">
+    <span class="k">gross recovery</span>
+    <span class="v">{{ ov.gross_paise|rupees }}</span>
+    <span class="s">treatment arm, {{ ov.treatment.recovered_events }} events recovered</span>
+  </div>
+  <div class="tile">
+    <span class="k">cannibalised</span>
+    <span class="v dim">{{ ov.counterfactual_paise|rupees }}</span>
+    <span class="s">
+      would have arrived anyway
+      {%- if ov.gross_paise %} &middot; {{ (ov.counterfactual_paise / ov.gross_paise)|pct(0) }} of gross{% endif %}
+    </span>
+  </div>
+  <div class="tile key">
+    <span class="k">incremental recovery</span>
+    <span class="v">{{ ov.incremental_paise|rupees }}</span>
+    <span class="s">gross minus organic &middot; the number worth reporting</span>
+  </div>
+  <div class="tile">
+    <span class="k">cost of recovery</span>
+    <span class="v">{{ ov.cost_paise|rupees }}</span>
+    <span class="s">incentives plus channel spend</span>
+  </div>
+  <div class="tile">
+    <span class="k">net</span>
+    <span class="v">{{ ov.net_paise|rupees }}</span>
+    <span class="s">incremental minus cost</span>
+  </div>
+</section>
+
+{% if ov.has_outcomes %}
+<p class="formula">
+  {{ ov.gross_paise|rupees }} gross
+  &minus; ( {{ ov.control.recovery_rate|pct }} holdout recovery rate
+  &times; {{ ov.treatment.value_paise|rupees }} treated value at risk )
+  = <b>{{ ov.incremental_paise|rupees }}</b> incremental
+</p>
+{% else %}
+<p class="formula warn">
+  No outcomes have been resolved yet, so every recovery figure above is nil
+  rather than measured. Run the pipeline and the eval harness before reading
+  anything into them.
+</p>
+{% endif %}
+
+<div class="cols">
+
+  <section class="panel">
+    <h2>The two arms</h2>
+    <table class="grid">
+      <thead>
+        <tr>
+          <th>arm</th><th class="n">events</th><th class="n">value at risk</th>
+          <th class="n">recovered</th><th class="n">rate</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for arm in [ov.treatment, ov.control] %}
+        <tr>
+          <td><span class="pill c-{{ arm.cohort.value }}">{{ arm.cohort.value }}</span></td>
+          <td class="n">{{ arm.events }}</td>
+          <td class="n">{{ arm.value_paise|rupees }}</td>
+          <td class="n">{{ arm.recovered_paise|rupees }}</td>
+          <td class="n">{{ arm.recovery_rate|pct }}</td>
+        </tr>
+        {% endfor %}
+        <tr class="total">
+          <td>lift</td>
+          <td class="n">&mdash;</td>
+          <td class="n">&mdash;</td>
+          <td class="n">{{ ov.incremental_paise|rupees }}</td>
+          <td class="n">{{ (ov.treatment.recovery_rate - ov.control.recovery_rate)|pct }} pts</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="note">
+      Rates are value-weighted: a merchant cares what share of rupees came back,
+      not what share of tickets did, and with this amount distribution the two
+      are not close. The holdout is {{ ov.control.value_paise|crupees }} of
+      at-risk value deliberately left untouched.
+    </p>
+  </section>
+
+  <section class="panel">
+    <h2>Where recovered money is attributed</h2>
+    {% if ov.by_attribution %}
+    <table class="grid">
+      <thead><tr><th>attribution</th><th class="n">events</th><th class="n">value</th></tr></thead>
+      <tbody>
+        {% for attribution, n, value in ov.by_attribution %}
+        <tr>
+          <td>{{ attribution.value }}</td>
+          <td class="n">{{ n }}</td>
+          <td class="n">{{ value|rupees }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="note">
+      Treatment arm only. <b>agent</b> means the money arrived through a link or
+      retry Recoup created and is directly traceable; <b>organic</b> means the
+      customer came back alone and Recoup takes no credit; <b>unclear</b> is
+      never folded into the headline.
+    </p>
+    {% else %}
+    <p class="note">No outcomes resolved yet.</p>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <h2>Who decided</h2>
+    {% if ov.decisions %}
+    <table class="grid">
+      <thead><tr><th>source</th><th class="n">decisions</th><th class="n">share</th><th class="n">tokens</th></tr></thead>
+      <tbody>
+        {% for source, n, tin, tout in ov.by_source %}
+        <tr>
+          <td><span class="pill s-{{ source.value }}">{{ source.value }}</span></td>
+          <td class="n">{{ n }}</td>
+          <td class="n">{{ (n / ov.decisions)|pct }}</td>
+          <td class="n">{{ (tin + tout)|group_indian }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="note">
+      The model is off the hot path by design. {{ ov.llm_share|pct }} of
+      decisions reached it; the rest were settled by the taxonomy and the scorer
+      for the cost of a database read.
+    </p>
+    {% else %}
+    <p class="note">No decisions recorded yet.</p>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <h2>What policy did</h2>
+    {% if ov.by_verdict %}
+    <table class="grid">
+      <thead><tr><th>verdict</th><th class="n">reviews</th></tr></thead>
+      <tbody>
+        {% for verdict, n in ov.by_verdict %}
+        <tr>
+          <td><span class="pill v-{{ verdict.value }}">{{ verdict.value }}</span></td>
+          <td class="n">{{ n }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if ov.denials %}
+    <table class="grid tight">
+      <thead><tr><th>denied by</th><th class="n">times</th><th class="n">exposure</th></tr></thead>
+      <tbody>
+        {% for rule in ov.denials[:6] %}
+        <tr>
+          <td><a href="/policy#{{ rule.name }}">{{ rule.name|humanise }}</a></td>
+          <td class="n">{{ rule.failed }}</td>
+          <td class="n">{{ rule.exposure_paise|rupees }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+    <p class="note">Every bound, every time &mdash; <a href="/policy">the full set and how often each binds</a>.</p>
+    {% else %}
+    <p class="note">No policy reviews recorded yet.</p>
+    {% endif %}
+  </section>
+
+</div>
+
+<section class="panel">
+  <h2>Where the events stand</h2>
+  <table class="grid">
+    <thead><tr><th>status</th><th class="n">events</th><th class="n">value</th><th></th></tr></thead>
+    <tbody>
+      {% for status, n, value in ov.by_status %}
+      <tr>
+        <td><a href="/events?status={{ status.value }}">{{ status.value|humanise }}</a></td>
+        <td class="n">{{ n }}</td>
+        <td class="n">{{ value|rupees }}</td>
+        <td class="bar"><span style="width: {{ (100 * value / ov.value_at_risk_paise)|round(1) }}%"></span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="note">
+    Suppressed value is reported here rather than dropped. An event Recoup
+    refused to touch is still money the merchant lost, and hiding it would make
+    the recovery rate look better by making the denominator smaller.
+  </p>
+</section>
+
+{% endif %}
+
+<section class="panel">
+  <h2>Eval harness</h2>
+  {% if report %}
+  <p class="note">
+    <code>{{ report.path.name }}</code> &middot; written {{ report.modified_at|ist }}
+  </p>
+  {% if report.provenance %}<p class="note quote">{{ report.provenance }}</p>{% endif %}
+  {% set head = report.headline() %}
+  {% if head %}
+  <section class="tiles small">
+    {% for label, value in head.items() %}
+    <div class="tile">
+      <span class="k">{{ label|humanise }}</span>
+      <span class="v">{{ value|rupees }}</span>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  {% set sweep = report.sweep() %}
+  {% if sweep %}
+  <h3>sensitivity sweep</h3>
+  <div class="scroll">
+  <table class="grid">
+    <thead>
+      <tr>
+        <th>assumptions</th>
+        <th class="n">incremental</th>
+        <th class="n">cannibalised</th>
+        <th class="n">cost</th>
+        <th class="n">net</th>
+        <th class="n">lift</th>
+        <th class="n">95% interval</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for point in sweep %}
+      <tr>
+        <td>{{ point.label }}</td>
+        <td class="n">{{ point.incremental_paise|rupees }}</td>
+        <td class="n">{{ point.cannibalised_paise|rupees }}</td>
+        <td class="n">{{ point.cost_paise|rupees }}</td>
+        <td class="n strong">{{ point.net_paise|rupees }}</td>
+        <td class="n">{{ point.lift|pct }}</td>
+        <td class="n dim">
+          {%- if point.ci_low is not none -%}
+            {{ point.ci_low|pct }} to {{ point.ci_high|pct }}{{ " *" if point.crosses_zero else "" }}
+          {%- endif -%}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="note">
+    The lift assumptions are swept from pessimistic to optimistic and the range
+    is reported, because a result that only holds at one parameter setting is
+    not a result. An interval marked <b>*</b> crosses zero: at this sample size
+    that arm's lift is not distinguishable from nothing, and it should be read
+    as "not yet measurable" rather than as a number.
+  </p>
+  {% endif %}
+
+  <h3>the report, verbatim</h3>
+  <table class="grid tight kv">
+    <tbody>
+      {% for key, value in report.rows() %}
+      <tr>
+        <td class="key">{{ key }}</td>
+        {% if key.endswith("_paise") and value is integer %}
+        <td class="n">{{ value|rupees }}</td>
+        {% elif value is number %}
+        <td class="n">{{ value }}</td>
+        {% else %}
+        <td class="detail">{{ value }}</td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="note">
+    Every scalar the grader wrote, unedited and unranked. The dashboard reads
+    this file by key name rather than by fixed path, so a reorganisation in
+    <code>recoup/eval</code> makes this panel less specific instead of blank.
+  </p>
+  {% else %}
+  <p class="note">No eval report found in <code>data/reports/</code>.</p>
+  <pre>python scripts/run_eval.py</pre>
+  {% endif %}
+</section>
+
+{% endblock %}

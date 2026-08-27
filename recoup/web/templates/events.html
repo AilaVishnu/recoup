@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Recoup &middot; events{% endblock %}
+
+{% block content %}
+
+<h1>Events</h1>
+<p class="lede">
+  Sorted by expected value, descending &mdash; the first screen is the money.
+  Any row opens the full replay: what was scored, what was proposed, which
+  bounds were checked, what ran.
+</p>
+
+{% if not ready %}
+  {% set empty_title = "No database yet" %}
+  {% set empty_hint = "Recoup reads data/recoup.db. Build the synthetic merchant first." %}
+  {% set empty_command = "python scripts/seed.py" %}
+  {% include "_empty.html" %}
+{% else %}
+
+<form class="filters" method="get" action="/events">
+  <label>cohort
+    <select name="cohort">
+      <option value="">any</option>
+      {% for c in cohorts %}
+      <option value="{{ c.value }}" {{ 'selected' if filters.cohort == c else '' }}>{{ c.value }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>status
+    <select name="status">
+      <option value="">any</option>
+      {% for s in statuses %}
+      <option value="{{ s.value }}" {{ 'selected' if filters.status == s else '' }}>{{ s.value|humanise }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>reason
+    <select name="reason">
+      <option value="">any</option>
+      {% for code in reason_codes %}
+      <option value="{{ code }}" {{ 'selected' if filters.reason == code else '' }}>{{ code }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>policy verdict
+    <select name="verdict">
+      <option value="">any</option>
+      {% for v in verdicts %}
+      <option value="{{ v.value }}" {{ 'selected' if filters.verdict == v else '' }}>{{ v.value }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button type="submit">apply</button>
+  {% if filters.active %}<a class="clear" href="/events">clear</a>{% endif %}
+  <span class="count">{{ total }} event{{ '' if total == 1 else 's' }}</span>
+</form>
+
+{% if not rows %}
+  {% set empty_title = "Nothing matches" %}
+  {% set empty_hint = "No events match these filters." if filters.active else "No revenue events have been generated yet." %}
+  {% set empty_command = none if filters.active else "python scripts/seed.py" %}
+  {% include "_empty.html" %}
+{% else %}
+
+<div class="scroll">
+<table class="grid rows">
+  <thead>
+    <tr>
+      <th>event</th>
+      <th>occurred</th>
+      <th>customer</th>
+      <th>reason</th>
+      <th>arm</th>
+      <th class="n">amount</th>
+      <th class="n">recov.</th>
+      <th class="n">expected value</th>
+      <th>action</th>
+      <th>by</th>
+      <th>policy</th>
+      <th>outcome</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <td><a class="mono" href="/events/{{ row.event.id }}">{{ row.event.id|sid }}</a></td>
+      <td class="dim">{{ row.event.occurred_at|ist_short }}</td>
+      <td>{{ row.event.customer.name if row.event.customer else "—" }}</td>
+      <td><span class="mono">{{ row.event.reason_code }}</span></td>
+      <td><span class="pill c-{{ row.event.cohort.value }}">{{ row.event.cohort.value }}</span></td>
+      <td class="n">{{ row.event.amount_paise|rupees }}</td>
+      <td class="n">{{ row.assessment.recoverability|pct if row.assessment else "—" }}</td>
+      <td class="n strong">{{ row.assessment.expected_value_paise|rupees if row.assessment else "—" }}</td>
+      <td>{{ row.decision.action_type.value|humanise if row.decision else "—" }}</td>
+      <td>
+        {% if row.decision %}<span class="pill s-{{ row.decision.source.value }}">{{ row.decision.source.value }}</span>{% endif %}
+      </td>
+      <td>
+        {% if row.review %}<span class="pill v-{{ row.review.verdict.value }}">{{ row.review.verdict.value }}</span>{% endif %}
+      </td>
+      <td>
+        {% if row.outcome %}
+          {% if row.outcome.recovered %}
+            <span class="ok">recovered</span> <span class="dim">{{ row.outcome.recovered_paise|rupees }}</span>
+          {% else %}
+            <span class="dim">lost</span>
+          {% endif %}
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+
+{% if pages > 1 %}
+<nav class="pager">
+  {% if prev_url %}<a href="{{ prev_url }}">&larr; previous</a>{% else %}<span class="dim">&larr; previous</span>{% endif %}
+  <span>page {{ page }} of {{ pages }}</span>
+  {% if next_url %}<a href="{{ next_url }}">next &rarr;</a>{% else %}<span class="dim">next &rarr;</span>{% endif %}
+</nav>
+{% endif %}
+
+{% endif %}
+{% endif %}
+
+{% endblock %}

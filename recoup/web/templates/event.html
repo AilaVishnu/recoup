@@ -1,0 +1,276 @@
+{% extends "base.html" %}
+{% block title %}Recoup &middot; {{ r.event.id }}{% endblock %}
+
+{% block content %}
+
+<p class="crumb"><a href="/events">events</a> / <span class="mono">{{ r.event.id }}</span></p>
+
+<h1>{{ r.profile.label }}</h1>
+<p class="lede">
+  {{ r.event.amount_paise|rupees }} at risk &middot;
+  {{ r.event.customer.name if r.event.customer else "unknown customer" }} &middot;
+  {{ r.event.occurred_at|ist }}
+</p>
+
+{% if r.is_control %}
+<div class="holdout">
+  <b>Held out.</b> This event was scored and decided exactly as a treated event
+  would be &mdash; the whole chain below is real &mdash; and then execution was
+  suppressed at the last step. What follows the decision is the counterfactual:
+  what happened when Recoup did nothing.
+</div>
+{% endif %}
+
+<ol class="timeline {{ 'is-control' if r.is_control else '' }}">
+
+  <li class="stage">
+    <span class="tag">event</span>
+    <div class="card">
+      <header>
+        <h2>{{ r.event.kind.value|humanise }}</h2>
+        <span class="meta">{{ r.event.occurred_at|ist }}</span>
+      </header>
+      <dl class="kv">
+        <div><dt>amount</dt><dd class="n big">{{ r.event.amount_paise|rupees }}</dd></div>
+        <div><dt>reason code</dt><dd class="mono">{{ r.event.reason_code }}</dd></div>
+        <div><dt>rail</dt><dd>{{ r.event.rail }}</dd></div>
+        <div><dt>attempt</dt><dd>#{{ r.event.attempt_no }}</dd></div>
+        <div><dt>arm</dt><dd><span class="pill c-{{ r.event.cohort.value }}">{{ r.event.cohort.value }}</span></dd></div>
+        <div><dt>status</dt><dd>{{ r.event.status.value|humanise }}</dd></div>
+        <div><dt>customer</dt><dd>{{ r.event.customer.name if r.event.customer else "—" }}</dd></div>
+        <div><dt>razorpay order</dt><dd class="mono">{{ r.event.razorpay_order_id or "—" }}</dd></div>
+        <div><dt>razorpay payment</dt><dd class="mono">{{ r.event.razorpay_payment_id or "—" }}</dd></div>
+      </dl>
+
+      <div class="sub">
+        <h3>what the taxonomy says about this failure</h3>
+        <dl class="kv">
+          <div><dt>strategy</dt><dd class="strong">{{ r.profile.strategy.value|humanise }}</dd></div>
+          <div><dt>error source / step</dt><dd>{{ r.profile.source }} / {{ r.profile.step }}</dd></div>
+          <div><dt>prior recoverability</dt><dd class="n">{{ r.profile.base_recoverability|pct }}</dd></div>
+          <div><dt>retry after</dt><dd class="n">{{ r.profile.retry_after_minutes }} min</dd></div>
+          <div><dt>attempt ceiling</dt><dd class="n">{{ r.profile.max_attempts }}</dd></div>
+          <div><dt>incentive eligible</dt><dd>{{ "yes" if r.profile.incentive_eligible else "no" }}</dd></div>
+          {% if r.profile.switch_to %}
+          <div><dt>switch to</dt><dd>{{ r.profile.switch_to|map(attribute='value')|join(', ') }}</dd></div>
+          {% endif %}
+        </dl>
+        {% if r.profile.note %}<p class="note quote">{{ r.profile.note }}</p>{% endif %}
+      </div>
+    </div>
+  </li>
+
+  <li class="stage">
+    <span class="tag">assessment</span>
+    <div class="card">
+      {% if r.assessment %}
+      <header>
+        <h2>Scored deterministically &mdash; no model involved</h2>
+        <span class="meta">{{ r.assessment.created_at|ist }}</span>
+      </header>
+      <dl class="kv">
+        <div><dt>recoverability</dt><dd class="n big">{{ r.assessment.recoverability|pct }}</dd></div>
+        <div><dt>expected value</dt><dd class="n big">{{ r.assessment.expected_value_paise|rupees }}</dd></div>
+        <div><dt>strategy</dt><dd class="strong">{{ r.assessment.recommended_strategy|humanise }}</dd></div>
+        <div><dt>base rate from</dt><dd>
+          {% if r.basis.startswith("fitted") %}
+            <span class="pill b-fitted">{{ r.basis }}</span>
+          {% else %}
+            <span class="pill b-prior">taxonomy prior</span>
+          {% endif %}
+        </dd></div>
+        <div><dt>earliest action</dt><dd>{{ r.assessment.earliest_action_at|ist }}</dd></div>
+        <div><dt>scorer</dt><dd class="mono">{{ r.assessment.scorer_version }}</dd></div>
+      </dl>
+      <p class="note">
+        {% if r.basis.startswith("fitted") %}
+          The base rate was measured from observed outcomes for this reason code
+          and shrunk toward the taxonomy prior in proportion to how little
+          evidence backs it.
+        {% else %}
+          The base rate is the taxonomy's cold-start prior: defensible as an
+          order of magnitude, not as a decimal point. It is superseded by
+          measured rates once enough outcomes exist.
+        {% endif %}
+      </p>
+
+      <div class="sub">
+        <h3>every feature the score was computed from</h3>
+        <dl class="kv features">
+          {% for key, value in r.assessment.features.items() %}
+          <div><dt>{{ key|humanise }}</dt><dd class="mono">{{ value }}</dd></div>
+          {% endfor %}
+        </dl>
+        <p class="note">
+          Recorded verbatim, which is what makes this score reproducible months
+          from now. Nothing here derives from the outcome or the cohort.
+        </p>
+      </div>
+      {% else %}
+      <header><h2>Not assessed</h2></header>
+      <p class="note">No assessment row. The scorer has not run over this event.</p>
+      {% endif %}
+    </div>
+  </li>
+
+  {% for stage in r.stages %}
+
+  <li class="stage">
+    <span class="tag">decision</span>
+    <div class="card">
+      <header>
+        <h2>
+          {{ stage.decision.action_type.value|humanise }}
+          <span class="pill s-{{ stage.decision.source.value }}">{{ stage.decision.source.value }}</span>
+        </h2>
+        <span class="meta">{{ stage.decision.created_at|ist }}</span>
+      </header>
+      {% if stage.decision.rationale %}
+      <blockquote>{{ stage.decision.rationale }}</blockquote>
+      {% endif %}
+      <dl class="kv">
+        {% if stage.decision.model %}
+        <div><dt>model</dt><dd class="mono">{{ stage.decision.model }}</dd></div>
+        <div><dt>tokens</dt><dd class="n">{{ stage.decision.input_tokens|group_indian }} in / {{ stage.decision.output_tokens|group_indian }} out</dd></div>
+        {% endif %}
+      </dl>
+      {% if stage.decision.params %}
+      <div class="sub">
+        <h3>parameters</h3>
+        <pre>{{ stage.decision.params|pretty }}</pre>
+      </div>
+      {% endif %}
+    </div>
+  </li>
+
+  <li class="stage">
+    <span class="tag">policy</span>
+    <div class="card">
+      {% if stage.review %}
+      <header>
+        <h2>
+          {{ stage.cleared }} of {{ stage.checks|length }} bounds cleared
+          <span class="pill v-{{ stage.review.verdict.value }}">{{ stage.review.verdict.value }}</span>
+        </h2>
+        <span class="meta">{{ stage.review.created_at|ist }}</span>
+      </header>
+      <table class="grid checks">
+        <tbody>
+          {% for check in stage.checks %}
+          <tr class="{{ 'pass' if check.passed else 'fail' }}">
+            <td class="mark">{{ "PASS" if check.passed else "FAIL" }}</td>
+            <td class="mono name">{{ check.name }}</td>
+            <td class="detail">{{ check.detail }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="note">
+        Every rule runs, every time &mdash; no short-circuiting on the first
+        failure. "Denied by quiet hours" would hide that the action also blew
+        the attempt cap, and the passes are what make the permission auditable.
+      </p>
+      {% else %}
+      <header><h2>Not reviewed</h2></header>
+      <p class="note">No policy review row for this decision.</p>
+      {% endif %}
+    </div>
+  </li>
+
+  <li class="stage">
+    <span class="tag">action</span>
+    <div class="card">
+      {% if stage.run %}
+      <header>
+        <h2>
+          {{ stage.run.action_type.value|humanise }}
+          <span class="pill r-{{ stage.run.status.value }}">{{ stage.run.status.value|humanise }}</span>
+        </h2>
+        <span class="meta">{{ stage.run.executed_at|ist }}</span>
+      </header>
+      <dl class="kv">
+        <div><dt>razorpay ref</dt><dd class="mono">{{ stage.run.razorpay_ref or "—" }}</dd></div>
+        <div><dt>incentive</dt><dd class="n">{{ stage.run.incentive_paise|rupees }}</dd></div>
+        <div><dt>channel cost</dt><dd class="n">{{ stage.run.channel_cost_paise|rupees }}</dd></div>
+      </dl>
+      {% if stage.run.error %}<p class="note fail-text">{{ stage.run.error }}</p>{% endif %}
+      {% if stage.run.response %}
+      <div class="sub"><h3>gateway response</h3><pre>{{ stage.run.response|pretty }}</pre></div>
+      {% endif %}
+      {% elif r.is_control %}
+      <header><h2>Nothing executed</h2></header>
+      <p class="suppressed">
+        Suppressed for the holdout. The decision above is exactly what Recoup
+        would have done to this {{ r.event.amount_paise|rupees }} &mdash; it was
+        computed, reviewed and recorded, and then not sent. That is what makes
+        the incremental number on the overview page mean anything.
+      </p>
+      {% else %}
+      <header><h2>Nothing executed</h2></header>
+      <p class="note">No action run. Either policy refused the decision or the executor has not reached this event.</p>
+      {% endif %}
+
+      {% if r.contacts or r.spends %}
+      <div class="sub">
+        <h3>ledger</h3>
+        <table class="grid tight">
+          <tbody>
+            {% for contact in r.contacts %}
+            <tr><td>contact</td><td class="mono">{{ contact.action_type.value }}</td><td class="n">{{ contact.occurred_at|ist }}</td></tr>
+            {% endfor %}
+            {% for spend in r.spends %}
+            <tr><td>spend</td><td class="n">{{ spend.amount_paise|rupees }}</td><td class="n">{{ spend.occurred_at|ist }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <p class="note">Append-only, and what the fatigue cap and the daily budget are counted from.</p>
+      </div>
+      {% endif %}
+    </div>
+  </li>
+
+  {% else %}
+
+  <li class="stage">
+    <span class="tag">decision</span>
+    <div class="card">
+      <header><h2>No decision recorded</h2></header>
+      <p class="note">The agent has not run over this event yet.</p>
+    </div>
+  </li>
+
+  {% endfor %}
+
+  <li class="stage">
+    <span class="tag">outcome</span>
+    <div class="card">
+      {% if r.outcome %}
+      <header>
+        <h2>
+          {% if r.outcome.recovered %}Recovered {{ r.outcome.recovered_paise|rupees }}{% else %}Not recovered{% endif %}
+          <span class="pill a-{{ r.outcome.attribution.value }}">{{ r.outcome.attribution.value }}</span>
+        </h2>
+        <span class="meta">{{ r.outcome.resolved_at|ist }}</span>
+      </header>
+      <dl class="kv">
+        <div><dt>attribution</dt><dd>{{ r.outcome.attribution.value }}</dd></div>
+        <div><dt>time to recovery</dt><dd class="n">{{ r.outcome.hours_to_recovery|hours }}</dd></div>
+        <div><dt>of amount at risk</dt><dd class="n">{{ r.outcome.recovered_paise|rupees }} of {{ r.event.amount_paise|rupees }}</dd></div>
+      </dl>
+      {% if r.outcome.note %}<p class="note">{{ r.outcome.note }}</p>{% endif %}
+      {% if r.is_control %}
+      <p class="note">
+        Untouched. Whatever happened here happened without Recoup, which is
+        precisely the quantity the treated arm is measured against.
+      </p>
+      {% endif %}
+      {% else %}
+      <header><h2>Unresolved</h2></header>
+      <p class="note">No outcome row. The recovery window has not been resolved for this event.</p>
+      {% endif %}
+    </div>
+  </li>
+
+</ol>
+
+{% endblock %}

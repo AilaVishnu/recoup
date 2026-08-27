@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Recoup &middot; not found{% endblock %}
+
+{% block content %}
+
+<h1>No such event</h1>
+<p class="lede">
+  Nothing in the audit trail has the id <span class="mono">{{ event_id }}</span>.
+  {% if not ready %}The database has not been built yet.{% endif %}
+</p>
+<p><a href="/events">Back to events</a></p>
+
+{% endblock %}

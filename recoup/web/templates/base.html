@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Recoup{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+
+<header class="top">
+  <a class="brand" href="/">recoup</a>
+  <nav>
+    <a href="/" class="{{ 'on' if active == 'overview' else '' }}">overview</a>
+    <a href="/events" class="{{ 'on' if active == 'events' else '' }}">events</a>
+    <a href="/policy" class="{{ 'on' if active == 'policy' else '' }}">policy</a>
+  </nav>
+  <div class="flags">
+    {% if dry_run %}<span class="flag">dry run</span>{% endif %}
+    <span class="flag">{{ rule_count }} bounds enforced</span>
+  </div>
+</header>
+
+<main>
+{% block content %}{% endblock %}
+</main>
+
+<footer>
+  Figures are computed from the audit trail in <code>data/recoup.db</code>.
+  Decision quality is real; the rupee outcomes are simulated and the README says
+  so at length.
+</footer>
+
+</body>
+</html>

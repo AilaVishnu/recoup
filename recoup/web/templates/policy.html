@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Recoup &middot; policy{% endblock %}
+
+{% block content %}
+
+<h1>The bounds</h1>
+<p class="lede">
+  The model proposes; this engine disposes. Everything below runs <i>after</i>
+  the agent has spoken, on every decision, with no short-circuiting &mdash; and
+  the passes are recorded alongside the failures, because "permitted because
+  {{ rule_count }} bounds were checked and cleared" is a claim a list of
+  failures cannot support.
+</p>
+
+<section class="panel">
+  <h2>Limits, read live from <code>recoup/policy/rules.py</code></h2>
+  <table class="grid bounds">
+    <thead><tr><th>bound</th><th class="n">value</th><th>why</th></tr></thead>
+    <tbody>
+      {% for b in bounds %}
+      <tr>
+        <td class="mono">{{ b.name }}</td>
+        <td class="n strong">
+          {%- if b.value is none -%}
+            no override
+          {%- elif b.value is boolean -%}
+            {{ "enforced" if b.value else "off" }}
+          {%- elif b.name.endswith("_paise") -%}
+            {{ b.value|rupees }}
+          {%- elif b.name.endswith("_fraction") -%}
+            {{ b.value|pct(0) }}
+          {%- elif b.name.endswith("_ratio") -%}
+            {{ b.value }}x
+          {%- else -%}
+            {{ b.value }}
+          {%- endif -%}
+        </td>
+        <td class="detail">{{ b.why }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="note">
+    Values and reasons are read out of the dataclass and its source at request
+    time, so this page cannot quietly drift from the engine that enforces it.
+  </p>
+</section>
+
+<section class="panel">
+  <h2>Which bounds actually bind</h2>
+  {% if not rules %}
+    {% set empty_title = "No reviews recorded" %}
+    {% set empty_hint = "The bounds above are declared but nothing has been put through them yet." %}
+    {% set empty_command = "python scripts/seed.py" %}
+    {% include "_empty.html" %}
+  {% else %}
+  <table class="grid rules">
+    <thead>
+      <tr>
+        <th>rule</th>
+        <th class="n">evaluated</th>
+        <th class="n">blocked</th>
+        <th class="n">rate</th>
+        <th class="n">exposure</th>
+        <th>what it said</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for rule in rules %}
+      <tr id="{{ rule.name }}" class="{{ 'binds' if rule.failed else '' }}">
+        <td class="mono name">{{ rule.name }}</td>
+        <td class="n dim">{{ rule.evaluated }}</td>
+        <td class="n">
+          {% if rule.failed %}
+            <a href="/events?verdict={{ rule.verdict }}"><span class="pill v-{{ rule.verdict }}">{{ rule.failed }}</span></a>
+          {% else %}
+            <span class="dim">0</span>
+          {% endif %}
+        </td>
+        <td class="n dim">{{ rule.failure_rate|pct }}</td>
+        <td class="n">{{ rule.exposure_paise|rupees if rule.failed else "" }}</td>
+        <td class="detail">
+          {% for example in rule.examples %}<div class="example">{{ example }}</div>{% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="note">
+    Exposure is per-rule, not a partition: when three bounds object to the same
+    action, that event's value appears under all three. The column answers
+    "which bound is doing the work", not "how much did policy block in total" -
+    summing it would double-count on purpose-built rows.
+  </p>
+  <p class="note">
+    A rule at zero is not dead weight. <code>never_retry_risk_declines</code>
+    firing rarely is what it looks like when fraud declines are 1.5% of traffic
+    and every one of them was caught.
+  </p>
+  {% endif %}
+</section>
+
+{% endblock %}
