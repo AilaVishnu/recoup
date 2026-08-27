@@ -30,7 +30,7 @@ eval must count the event as acted on. Only NO_ACTION means nothing happened.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -39,6 +39,7 @@ from recoup.db import (
     ActionRun,
     ActionStatus,
     ActionType,
+    Cohort,
     ContactLog,
     Customer,
     Decision,
@@ -49,7 +50,7 @@ from recoup.db import (
 from recoup.execute import outbox, razorpay_client
 from recoup.execute.razorpay_client import RecoupExecutionError
 from recoup.policy.rules import CONTACT_ACTIONS, Review
-from recoup.taxonomy import Rail, profile_for
+from recoup.taxonomy import Rail, Strategy, profile_for
 
 
 class ExecutionRefused(RuntimeError):
@@ -281,6 +282,107 @@ def _no_action(
 # ---------------------------------------------------------------------------
 
 
+REVIEW_STALENESS_TOLERANCE = timedelta(minutes=5)
+"""How far execution may drift from the instant the Review was granted.
+
+Not arbitrary. Every time-sensitive bound - quiet hours above all - is evaluated
+against ReviewContext.now, so an approval granted at 14:00 IST says nothing
+about 03:00 IST. A reviewer demonstrated exactly that: a genuine ALLOW taken at
+noon sent a message at 3am, because `now` is an independent argument here and
+nothing compared the two. Any layer that reviews and executes at different
+instants - a queue, a retry sweep, a scheduler honouring a delay - walks
+straight through the quiet-hours bound with a real approval in hand.
+"""
+
+
+def _verify_review_provenance(
+    review: Review,
+    decision: Decision,
+    event: RevenueEvent,
+    customer: Customer,
+    now: datetime,
+) -> None:
+    """Confirm this Review was issued for this action, at about this moment.
+
+    Without these checks a Review is an unauthenticated capability token: any
+    ALLOW authorises any action. tests/test_policy_bypass.py demonstrates six
+    ways that goes wrong, including a hand-built Review(ALLOW, checks=[]) - a
+    verdict from thirteen bounds that ran none of them.
+    """
+    if not review.checks:
+        raise ExecutionRefused(
+            f"review for event {event.id} carries no checks - an ALLOW that "
+            "evaluated nothing is not an ALLOW"
+        )
+    if review.event_id != event.id:
+        raise ExecutionRefused(
+            f"review was issued for event {review.event_id!r}, not {event.id}"
+        )
+    if review.customer_id != customer.id:
+        raise ExecutionRefused(
+            f"review was issued for customer {review.customer_id!r}, not {customer.id}"
+        )
+    if review.action_type != decision.action_type:
+        raise ExecutionRefused(
+            f"review approved {review.action_type} but the decision is "
+            f"{decision.action_type}"
+        )
+    if review.reviewed_at is None:
+        raise ExecutionRefused(f"review for event {event.id} has no timestamp")
+
+    drift = abs(now - review.reviewed_at)
+    if drift > REVIEW_STALENESS_TOLERANCE:
+        raise ExecutionRefused(
+            f"review for event {event.id} was granted at {review.reviewed_at} "
+            f"but execution is at {now} ({drift} adrift). Time-sensitive bounds "
+            "were evaluated against the earlier instant; re-review instead."
+        )
+
+
+def _recheck_invariants(review: Review, decision: Decision, event: RevenueEvent) -> None:
+    """Re-test the cheap absolutes here, independently of the policy engine.
+
+    This module's docstring claims the executor is a safety net. It was not: the
+    only independent limit on a discount was `incentive < order value`, so an
+    executor bound of 100% stood behind a policy bound of 15%. Everything below
+    is checkable without a database round trip, which is the whole reason it is
+    affordable to check twice.
+    """
+    if event.cohort is Cohort.CONTROL:
+        raise ExecutionRefused(
+            f"event {event.id} is in the control arm. Executing it would "
+            "contaminate the holdout and invalidate every measurement built on it."
+        )
+
+    profile = profile_for(event.reason_code)
+    if profile.strategy is Strategy.DO_NOT_RETRY and decision.action_type not in (
+        ActionType.NO_ACTION,
+        ActionType.ESCALATE_TO_HUMAN,
+    ):
+        raise ExecutionRefused(
+            f"{event.reason_code} is do-not-retry; {decision.action_type} would "
+            "re-present a risk decline"
+        )
+
+    incentive = int((decision.params or {}).get("incentive_paise", 0) or 0)
+    if incentive > 0:
+        if not profile.incentive_eligible:
+            raise ExecutionRefused(
+                f"{event.reason_code} is a technical failure - a discount buys "
+                "nothing and is pure margin burn"
+            )
+        bounds = review.bounds or {}
+        max_fraction = bounds.get("max_incentive_fraction", 0.15)
+        max_absolute = bounds.get("max_incentive_paise", 2_000_00)
+        if event.amount_paise <= 0:
+            raise ExecutionRefused(f"event {event.id} has no order value to discount")
+        if incentive > max_absolute or incentive / event.amount_paise > max_fraction:
+            raise ExecutionRefused(
+                f"incentive {incentive} exceeds the reviewed caps "
+                f"({max_fraction:.0%} / {max_absolute} paise) on event {event.id}"
+            )
+
+
 def execute(
     session: Session,
     decision: Decision,
@@ -314,6 +416,9 @@ def execute(
             f"event {event.id} belongs to customer {event.customer_id}, "
             f"not {customer.id}"
         )
+
+    _verify_review_provenance(review, decision, event, customer, now)
+    _recheck_invariants(review, decision, event)
 
     # Handlers stamp decision_id into Razorpay notes, so it has to exist first.
     if decision.id is None:

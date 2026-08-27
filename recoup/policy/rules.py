@@ -21,14 +21,14 @@ Two properties every rule here holds to:
 
 2. **Record the passes too.** The PolicyReview row stores every check that ran,
    not just the ones that failed. "This action was permitted because these
-   twelve bounds were checked and cleared" is the claim the audit trail exists
+   thirteen bounds were checked and cleared" is the claim the audit trail exists
    to support, and it cannot be made from a list of failures alone.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from sqlalchemy import func, select
@@ -63,9 +63,6 @@ class Bounds:
     seven days across all events - not per event, which is the loophole that
     turns a reasonable cap into a spam cannon for anyone with several failures."""
 
-    quiet_hours_enforced: bool = True
-    """No customer contact between 21:00 and 08:00 IST."""
-
     max_incentive_fraction: float = 0.15
     """A discount may never exceed 15% of the order value."""
 
@@ -94,6 +91,60 @@ class Bounds:
     """Set to tighten the per-reason attempt ceilings globally. None = trust the
     taxonomy."""
 
+    def assert_not_looser_than_default(self) -> None:
+        """Refuse any override that widens a limit. Tightening is allowed.
+
+        Without this, `bounds` is a caller-supplied argument that turns the
+        policy engine off. A reviewer demonstrated it: passing
+        Bounds(human_approval_above_paise=10**14) put a Rs 5,00,000 event through
+        to execution with no human involved - twenty times the autonomy limit -
+        and the stored audit row recorded high_value_needs_human as *passed*,
+        "within autonomy limit", because the check reports its verdict and not
+        the threshold it used.
+
+        A bound that the caller can widen is not a bound, and one that widens
+        without leaving a trace is worse than not having it. So overrides may
+        only ever move in the safe direction, and the direction differs per
+        field: a smaller contact cap is stricter, a larger EV floor is stricter.
+        """
+        d = DEFAULT_BOUNDS
+        looser: list[str] = []
+
+        # Smaller is stricter - a lower ceiling permits less.
+        for field_name in (
+            "max_contacts_per_customer_per_week",
+            "max_incentive_fraction",
+            "max_incentive_paise",
+            "daily_incentive_budget_paise",
+            "human_approval_above_paise",
+        ):
+            if getattr(self, field_name) > getattr(d, field_name):
+                looser.append(
+                    f"{field_name}={getattr(self, field_name)} exceeds the "
+                    f"default {getattr(d, field_name)}"
+                )
+
+        # Larger is stricter - a higher floor permits less.
+        for field_name in ("min_expected_value_paise", "min_incremental_ev_ratio"):
+            if getattr(self, field_name) < getattr(d, field_name):
+                looser.append(
+                    f"{field_name}={getattr(self, field_name)} is below the "
+                    f"default {getattr(d, field_name)}"
+                )
+
+        # None means "no override", which is looser than any ceiling.
+        if self.max_attempts_override is not None and (
+            d.max_attempts_override is not None
+            and self.max_attempts_override > d.max_attempts_override
+        ):
+            looser.append("max_attempts_override exceeds the default")
+
+        if looser:
+            raise ValueError(
+                "Bounds override would loosen policy, which is never permitted: "
+                + "; ".join(looser)
+            )
+
 
 DEFAULT_BOUNDS = Bounds()
 
@@ -119,9 +170,30 @@ class Check:
         }
 
 
+def _naive_utc(value: datetime, field_name: str) -> datetime:
+    """Normalise to naive UTC, the one representation the schema stores.
+
+    Not pedantry. db.utcnow() returns an *aware* datetime while every DateTime
+    column holds naive values, so an aware `now` reaching _rule_timing_floor
+    raises "can't compare offset-naive and offset-aware datetimes" - and a raise
+    inside review() used to mean no PolicyReview row at all. Converting at the
+    boundary makes the mismatch impossible instead of merely unlikely.
+    """
+    if not isinstance(value, datetime):
+        raise TypeError(f"{field_name} must be a datetime, got {type(value).__name__}")
+    if value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
 @dataclass
 class ReviewContext:
-    """Everything the rules need, gathered once."""
+    """Everything the rules need, gathered once - and validated before they run.
+
+    Validation lives here so no individual rule has to be defensive about types.
+    A rule that has to guard its own inputs will eventually forget, and the
+    forgetting is silent.
+    """
 
     event_id: str
     customer_id: str
@@ -137,11 +209,61 @@ class ReviewContext:
     now: datetime
     bounds: Bounds = DEFAULT_BOUNDS
 
+    def __post_init__(self) -> None:
+        # Coerce enums rather than trusting the caller's spelling. Cohort and
+        # ActionType are str-enums, so a plain string compares equal but is not
+        # identical - and one rule in this file used to test identity, which
+        # silently classified a held-out event as treatment.
+        self.cohort = Cohort(self.cohort)
+        self.action_type = ActionType(self.action_type)
+
+        for name in (
+            "amount_paise",
+            "expected_value_paise",
+            "attempts_so_far",
+            "incentive_paise",
+        ):
+            value = getattr(self, name)
+            if value is None or not isinstance(value, (int, float)):
+                raise ValueError(f"{name} must be numeric, got {value!r}")
+            setattr(self, name, int(value))
+
+        if self.recoverability is None or not isinstance(
+            self.recoverability, (int, float)
+        ):
+            raise ValueError(f"recoverability must be numeric, got {self.recoverability!r}")
+
+        self.now = _naive_utc(self.now, "now")
+        self.earliest_action_at = _naive_utc(self.earliest_action_at, "earliest_action_at")
+
+        self.bounds.assert_not_looser_than_default()
+
 
 @dataclass
 class Review:
+    """A verdict, and the provenance that says what it was a verdict *about*.
+
+    The provenance fields are not bookkeeping. Without them a Review is an
+    unauthenticated capability token: a genuine ALLOW computed for a harmless
+    nudge on one event will authorise a fraud retry on another, a message to a
+    held-out customer, or a send at 3am for an approval granted at noon -
+    demonstrated for each case in tests/test_policy_bypass.py. execute() can
+    only refuse those if the Review says which event, customer and instant it
+    was issued for.
+
+    `bounds` is snapshotted for a different reason: the checks record their
+    verdicts but not the thresholds behind them, so an audit row could say
+    "within autonomy limit" without recording what the limit was.
+    """
+
     verdict: PolicyVerdict
     checks: list[Check] = field(default_factory=list)
+
+    event_id: str | None = None
+    customer_id: str | None = None
+    action_type: ActionType | None = None
+    reviewed_at: datetime | None = None
+    bounds: dict[str, Any] = field(default_factory=dict)
 
     @property
     def violations(self) -> list[str]:
@@ -234,8 +356,6 @@ def _rule_timing_floor(ctx: ReviewContext, session: Session) -> Check:
 
 
 def _rule_quiet_hours(ctx: ReviewContext, session: Session) -> Check:
-    if not ctx.bounds.quiet_hours_enforced:
-        return Check("quiet_hours", True, PolicyVerdict.ALLOW, "not enforced")
     if ctx.action_type not in CONTACT_ACTIONS:
         return Check("quiet_hours", True, PolicyVerdict.ALLOW, "no customer contact")
 
@@ -401,9 +521,26 @@ def _rule_control_arm_is_never_executed(ctx: ReviewContext, session: Session) ->
     control arm that gets acted on "just this once" is not a control arm, and
     every number computed from it afterwards is fiction.
     """
-    if ctx.cohort is not Cohort.CONTROL:
+    # Equality, never identity. Cohort is a str-enum, so `'control' is
+    # Cohort.CONTROL` is False while `==` is True - and this was the only rule in
+    # the file testing identity, which meant a cohort arriving as a plain string
+    # from a replay or a webhook was waved through as "treatment arm". A
+    # contaminated holdout cannot be detected after the fact; every number
+    # computed from it is quietly wrong forever.
+    #
+    # Unrecognised cohorts deny rather than defaulting to treatment. ReviewContext
+    # now coerces this field, so reaching the else branch means something is very
+    # wrong, and guessing is the wrong response to that.
+    if ctx.cohort == Cohort.TREATMENT:
         return Check(
             "control_arm_suppression", True, PolicyVerdict.ALLOW, "treatment arm"
+        )
+    if ctx.cohort != Cohort.CONTROL:
+        return Check(
+            "control_arm_suppression",
+            False,
+            PolicyVerdict.DENY,
+            f"unrecognised cohort {ctx.cohort!r} - refusing to assume treatment",
         )
     if ctx.action_type in (ActionType.NO_ACTION, ActionType.ESCALATE_TO_HUMAN):
         return Check("control_arm_suppression", True, PolicyVerdict.ALLOW, "non-acting")
@@ -440,7 +577,28 @@ def review(ctx: ReviewContext, session: Session) -> Review:
     and exceeded the attempt cap. Recoup runs the full set so the record shows
     everything that was wrong, not merely the first thing noticed.
     """
-    checks = [rule(ctx, session) for rule in RULES]
+    checks: list[Check] = []
+    for rule in RULES:
+        try:
+            checks.append(rule(ctx, session))
+        except Exception as exc:  # noqa: BLE001 - the point is to catch everything
+            # Fail closed, and say so in the audit trail.
+            #
+            # This module's docstring has always promised that a rule which
+            # cannot evaluate denies. Until this existed the promise was false:
+            # five different malformed inputs raised TypeError out of review()
+            # instead, and because the raise happened before any row was
+            # written, the event ended up with no PolicyReview at all - no
+            # denial, no record, just a stack trace. An unevaluable event is
+            # exactly the case where the audit trail matters most.
+            checks.append(
+                Check(
+                    rule.__name__.removeprefix("_rule_"),
+                    False,
+                    PolicyVerdict.DENY,
+                    f"rule raised {type(exc).__name__}: {exc} - failing closed",
+                )
+            )
 
     if any(c.verdict is PolicyVerdict.DENY and not c.passed for c in checks):
         verdict = PolicyVerdict.DENY
@@ -449,4 +607,15 @@ def review(ctx: ReviewContext, session: Session) -> Review:
     else:
         verdict = PolicyVerdict.ALLOW
 
-    return Review(verdict=verdict, checks=checks)
+    return Review(
+        verdict=verdict,
+        checks=checks,
+        # Provenance, so execute() can verify this Review was issued for the
+        # thing it is about to act on rather than trusting whatever it was
+        # handed. See the Review docstring.
+        event_id=ctx.event_id,
+        customer_id=ctx.customer_id,
+        action_type=ctx.action_type,
+        reviewed_at=ctx.now,
+        bounds=asdict(ctx.bounds),
+    )

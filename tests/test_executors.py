@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from types import SimpleNamespace
 
+from dataclasses import asdict
+
 import pytest
 from razorpay.errors import BadRequestError, ServerError
 from sqlalchemy import create_engine, func, select
@@ -35,7 +37,7 @@ from recoup.db import (
 from recoup.execute import actions, outbox, razorpay_client
 from recoup.execute.actions import ExecutionRefused, execute
 from recoup.execute.razorpay_client import RecoupExecutionError
-from recoup.policy.rules import Check, Review
+from recoup.policy.rules import Bounds, Check, Review
 
 # 14:00 IST - outside quiet hours, so nothing here is incidentally suppressed.
 NOW = datetime(2026, 3, 3, 8, 30)
@@ -82,10 +84,22 @@ def no_keys(monkeypatch):
     )
 
 
-def allowed() -> Review:
+def allowed(event=None, customer=None, decision=None, now=None) -> Review:
+    """An ALLOW carrying the provenance execute() now insists on.
+
+    A bare Review(ALLOW) is no longer accepted, and deliberately so: without
+    provenance any approval authorises any action, which tests/test_policy_bypass.py
+    demonstrates six ways. Fixtures have to mint a Review for the thing they are
+    actually executing, exactly as review() does.
+    """
     return Review(
         verdict=PolicyVerdict.ALLOW,
         checks=[Check("stub", True, PolicyVerdict.ALLOW, "test fixture")],
+        event_id=event.id if event is not None else None,
+        customer_id=customer.id if customer is not None else None,
+        action_type=decision.action_type if decision is not None else None,
+        reviewed_at=now,
+        bounds=asdict(Bounds()),
     )
 
 
@@ -146,7 +160,7 @@ def test_dry_run_needs_no_keys(no_keys, outbox_file, session):
     assert razorpay_client.is_dry_run() is True
 
     customer, event, decision = make(session)
-    run = execute(session, decision, allowed(), event, customer, NOW)
+    run = execute(session, decision, allowed(event, customer, decision, NOW), event, customer, NOW)
 
     assert run.status is ActionStatus.SKIPPED_DRY_RUN
     assert run.razorpay_ref.startswith("plink_dry_")
@@ -198,19 +212,44 @@ def test_decision_from_another_event_is_refused(no_keys, session):
     customer, event, decision = make(session)
     decision.event_id = "evt_somewhere_else"
     with pytest.raises(ExecutionRefused, match="belongs to event"):
-        execute(session, decision, allowed(), event, customer, NOW)
+        execute(session, decision, allowed(event, customer, decision, NOW), event, customer, NOW)
 
 
 def test_an_incentive_bigger_than_the_order_is_refused(no_keys, session):
-    """Unreachable past the 15% cap - which is why reaching it must stop the run."""
+    """Unreachable past the 15% cap - which is why reaching it must stop the run.
+
+    Uses payment_cancelled because it is one of only two incentive-eligible
+    reason codes. On an ineligible reason the executor now refuses earlier and
+    for a stronger reason, which would make this test pass without ever
+    exercising the size check it is named for.
+    """
     customer, event, decision = make(
         session,
+        reason_code="payment_cancelled",
         action_type=ActionType.NUDGE_WITH_INCENTIVE,
         params={"incentive_paise": 5_000_00},
         amount_paise=2_000_00,
     )
-    with pytest.raises(ExecutionRefused, match="policy should have caught this"):
-        execute(session, decision, allowed(), event, customer, NOW)
+    with pytest.raises(ExecutionRefused, match="exceeds the reviewed caps"):
+        execute(session, decision, allowed(event, customer, decision, NOW), event, customer, NOW)
+
+
+def test_a_discount_on_a_technical_failure_is_refused_by_the_executor(no_keys, session):
+    """Defence in depth on the bound that costs real margin when it fails.
+
+    Policy already refuses this. The executor refuses it independently, because
+    a discount on a bank outage pays a customer to do what they were going to do
+    anyway, and the only layer that can still stop it is the last one.
+    """
+    customer, event, decision = make(
+        session,
+        reason_code="issuer_down",
+        action_type=ActionType.NUDGE_WITH_INCENTIVE,
+        params={"incentive_paise": 100_00},
+        amount_paise=2_000_00,
+    )
+    with pytest.raises(ExecutionRefused, match="pure margin burn"):
+        execute(session, decision, allowed(event, customer, decision, NOW), event, customer, NOW)
 
 
 # --- ContactLog is written for contact, and only for contact ---------------
@@ -222,7 +261,7 @@ def test_silent_retry_writes_no_contact_log(no_keys, outbox_file, session):
     customer, event, decision = make(
         session, reason_code="issuer_down", action_type=ActionType.RETRY_PAYMENT
     )
-    run = execute(session, decision, allowed(), event, customer, NOW)
+    run = execute(session, decision, allowed(event, customer, decision, NOW), event, customer, NOW)
 
     assert run.razorpay_ref.startswith("order_dry_")
     assert counts(session) == (0, 0)
@@ -234,7 +273,7 @@ def test_nudge_writes_exactly_one_contact_log(no_keys, outbox_file, session):
     customer, event, decision = make(
         session, reason_code="payment_cancelled", action_type=ActionType.NUDGE
     )
-    execute(session, decision, allowed(), event, customer, NOW)
+    execute(session, decision, allowed(event, customer, decision, NOW), event, customer, NOW)
 
     contacts, spends = counts(session)
     assert (contacts, spends) == (1, 0)
@@ -245,7 +284,7 @@ def test_escalation_is_not_customer_contact(no_keys, outbox_file, session):
     customer, event, decision = make(
         session, action_type=ActionType.ESCALATE_TO_HUMAN, amount_paise=40_000_00
     )
-    run = execute(session, decision, allowed(), event, customer, NOW)
+    run = execute(session, decision, allowed(event, customer, decision, NOW), event, customer, NOW)
 
     assert run.status is ActionStatus.SENT
     assert run.razorpay_ref == "queue_evt_1"
@@ -258,7 +297,7 @@ def test_no_action_sends_nothing_at_all(no_keys, outbox_file, session):
     customer, event, decision = make(
         session, reason_code="fraud_suspected", action_type=ActionType.NO_ACTION
     )
-    run = execute(session, decision, allowed(), event, customer, NOW)
+    run = execute(session, decision, allowed(event, customer, decision, NOW), event, customer, NOW)
 
     assert run.status is ActionStatus.SKIPPED_DRY_RUN
     assert run.razorpay_ref is None
@@ -288,7 +327,7 @@ def test_a_failed_link_logs_no_contact(monkeypatch, outbox_file, session):
         params={"incentive_paise": 200_00},
         reason_code="payment_cancelled",
     )
-    run = execute(session, decision, allowed(), event, customer, NOW)
+    run = execute(session, decision, allowed(event, customer, decision, NOW), event, customer, NOW)
 
     assert run.status is ActionStatus.FAILED
     assert run.incentive_paise == 0
@@ -303,7 +342,7 @@ def test_spend_log_only_when_an_incentive_was_granted(no_keys, outbox_file, sess
     customer, event, decision = make(
         session, reason_code="payment_cancelled", action_type=ActionType.NUDGE
     )
-    execute(session, decision, allowed(), event, customer, NOW)
+    execute(session, decision, allowed(event, customer, decision, NOW), event, customer, NOW)
     assert counts(session)[1] == 0
 
 
@@ -315,7 +354,7 @@ def test_incentive_is_booked_and_discounts_the_link(no_keys, outbox_file, sessio
         params={"incentive_paise": 200_00},
         amount_paise=2_000_00,
     )
-    run = execute(session, decision, allowed(), event, customer, NOW)
+    run = execute(session, decision, allowed(event, customer, decision, NOW), event, customer, NOW)
 
     contacts, spends = counts(session)
     assert (contacts, spends) == (1, 1)
@@ -333,7 +372,7 @@ def test_channel_costs_are_real_numbers(no_keys, outbox_file, session):
     customer, event, decision = make(
         session, reason_code="card_expired", action_type=ActionType.PAYMENT_LINK
     )
-    run = execute(session, decision, allowed(), event, customer, NOW)
+    run = execute(session, decision, allowed(event, customer, decision, NOW), event, customer, NOW)
 
     assert run.channel_cost_paise == outbox.CHANNEL_COST_PAISE["sms"] == 25
     assert outbox.read_all(outbox_file)[0]["cost_paise"] == 25
@@ -343,7 +382,7 @@ def test_a_nudge_costs_email_not_zero(no_keys, outbox_file, session):
     customer, event, decision = make(
         session, reason_code="payment_cancelled", action_type=ActionType.NUDGE
     )
-    run = execute(session, decision, allowed(), event, customer, NOW)
+    run = execute(session, decision, allowed(event, customer, decision, NOW), event, customer, NOW)
     assert run.channel_cost_paise == outbox.CHANNEL_COST_PAISE["email"] == 10
 
 
