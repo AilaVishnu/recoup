@@ -544,23 +544,39 @@ def render(
 
     # Execution mode belongs in the header, not a footnote. Dry-run actions are
     # graded (see recoup/eval/resolve.py on why), so a reader who misses this
-    # line would take a simulated dispatch for a live one. Every figure below
-    # inherits whichever mode is printed here.
-    dry = metrics.integrity.get("dry_run_actions", 0)
-    live = max(0, o.treated_n - dry)
-    if dry and live:
+    # line would take a simulated dispatch for a live one.
+    #
+    # Counted from what could reach Razorpay, never from ActionStatus alone. An
+    # outbox nudge is SENT in every mode, so inferring "sent to Razorpay" from
+    # that status made an earlier version of this line report 168 live gateway
+    # calls during a run in which none were made. A header that overstates what
+    # the system did is worse than no header.
+    i = metrics.integrity
+    sent = i.get("gateway_sent", 0)
+    withheld = i.get("gateway_withheld", 0)
+    outbox = i.get("outbox_only_actions", 0)
+
+    if sent and withheld:
         mode = (
-            f"[yellow]mixed execution[/] - {live} action(s) sent to Razorpay, "
-            f"{dry} dispatched in dry run"
+            f"[yellow]mixed[/] - {sent} gateway call(s) made, {withheld} withheld "
+            "in dry run"
         )
-    elif dry:
+    elif withheld:
         mode = (
-            f"[yellow]dry run[/] - all {dry} action(s) simulated, no Razorpay call "
-            "left the machine"
+            f"[yellow]dry run[/] - {withheld} gateway call(s) withheld, "
+            "nothing left the machine"
         )
+    elif sent:
+        mode = f"[green]live test mode[/] - {sent} gateway call(s) to Razorpay"
     else:
-        mode = f"[green]live test mode[/] - {live} action(s) sent to Razorpay"
+        mode = "[dim]no gateway actions executed[/]"
+
     console.print(f"  {mode}")
+    if outbox:
+        console.print(
+            f"  [dim]{outbox} outbox message(s) - simulated in every mode, never "
+            "delivered to a real customer[/]"
+        )
     console.print(
         "  [dim]outcomes are simulated in every mode - see recoup/seed/world.py[/]"
     )

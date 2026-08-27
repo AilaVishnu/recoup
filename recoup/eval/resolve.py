@@ -29,9 +29,15 @@ that second number is the one a real deployment could actually obtain.
 
 What resolution refuses to credit
 ---------------------------------
-- Actions that never reached the customer. Dry-run and failed sends earn
-  nothing, so a demo run under RECOUP_DRY_RUN produces zero lift. That is the
-  correct answer, not a bug - the alternative is a flag that inflates results.
+- Failed sends. Nothing reached the customer, so nothing is credited.
+- Dry-run dispatches ARE credited, deliberately. The tempting rule is the
+  opposite - a simulated call has earned nothing - and it does not survive
+  contact with the rest of the system: the outbox simulates in every mode, so
+  excluding dry-run gateway calls would grade nudges always and Payment Links
+  only with the flag off. RECOUP_DRY_RUN would then be a dial on the results,
+  which is exactly what a transport flag must not be. What decides an outcome
+  here is world.py, which has no opinion about whether an HTTP request left the
+  machine; the mode is disclosed in the report header instead.
 - Actions on the control arm. Policy forbids them; if one appears anyway the
   event resolves as untouched and the contamination is reported at the top of
   the eval, because a holdout that was quietly acted on invalidates every
@@ -79,6 +85,17 @@ ACTING_TYPES = {
 NO_ACTION and ESCALATE_TO_HUMAN are recorded decisions, not interventions - the
 world model returns the organic probability for both. Counting them as treated
 would dilute the per-protocol rate with events nobody touched.
+"""
+
+OUTBOX_ONLY_TYPES = {ActionType.NUDGE}
+"""Actions that never touch Razorpay, in any mode.
+
+A plain nudge is an outbox message. Its ActionStatus is SENT even under
+RECOUP_DRY_RUN, because the outbox always simulates and so has nothing to skip -
+which means SENT on these rows says "a message was composed", not "a gateway
+call happened". Reading the two as the same thing is how the report header came
+to claim 168 live Razorpay calls during a run where is_dry_run() was true from
+start to finish.
 """
 
 RECOVERY_WINDOW_HOURS = RECOVERY_WINDOW_DAYS * 24
@@ -347,10 +364,36 @@ def executed_actions(session: Session) -> tuple[dict[str, ExecutedAction], dict[
         "pending_actions": 0,
         "inert_actions": 0,
         "extra_actions": 0,
+        # Split by whether the action could reach Razorpay at all, so the report
+        # header can state the execution mode truthfully instead of inferring it
+        # from a SENT status that an outbox message also carries.
+        "gateway_sent": 0,
+        "gateway_withheld": 0,
+        "outbox_only_actions": 0,
     }
     chosen: dict[str, ExecutedAction] = {}
 
     for event_id, run in rows:
+        # Classify by kind before status, so each run lands in exactly one
+        # counter. The other order double-counts a NO_ACTION run recorded as
+        # SKIPPED_DRY_RUN - it is both dry and inert - and the inflated dry
+        # figure then feeds the report header's execution-mode line.
+        if run.action_type not in ACTING_TYPES:
+            counters["inert_actions"] += 1
+            continue
+
+        # Did this action have any chance of reaching Razorpay? A plain nudge
+        # never does in ANY mode - it is an outbox message - so its SENT status
+        # says a message was composed, not that a gateway call happened. Reading
+        # SENT as "reached Razorpay" is what let the header claim 168 live calls
+        # during a run where is_dry_run() was true throughout.
+        if run.action_type in OUTBOX_ONLY_TYPES:
+            counters["outbox_only_actions"] += 1
+        elif run.status is ActionStatus.SKIPPED_DRY_RUN:
+            counters["gateway_withheld"] += 1
+        elif run.status is ActionStatus.SENT:
+            counters["gateway_sent"] += 1
+
         if run.status is ActionStatus.FAILED:
             counters["failed_actions"] += 1
             continue
@@ -376,9 +419,6 @@ def executed_actions(session: Session) -> tuple[dict[str, ExecutedAction], dict[
             counters["dry_run_actions"] += 1
         elif run.status is not ActionStatus.SENT:
             counters["pending_actions"] += 1
-            continue
-        if run.action_type not in ACTING_TYPES:
-            counters["inert_actions"] += 1
             continue
         if event_id in chosen:
             counters["extra_actions"] += 1
