@@ -1,0 +1,452 @@
+"""The bounds. Every proposed action passes through here before anything happens.
+
+Design principle: **the model proposes, the policy engine disposes.**
+
+Recoup's agent can suggest whatever it likes. It cannot message a customer at
+3am, cannot discount a bank outage, cannot retry a fraud decline, cannot spend
+past the daily budget, and cannot move on a high-value account without a human.
+Those are not instructions in a prompt - they are code that runs after the model
+has spoken, and the model has no way to reach around them.
+
+That matters because prompt-level guardrails fail silently and invisibly. A
+model that has been told "never exceed a 15% discount" will mostly obey, and the
+one time it does not, nothing catches it. A rule that runs afterward catches it
+every time, and writes down that it caught it.
+
+Two properties every rule here holds to:
+
+1. **Fail closed.** A rule that cannot evaluate - missing data, unknown reason
+   code, arithmetic it cannot complete - denies. Recovery is worth money;
+   uncontrolled action costs more.
+
+2. **Record the passes too.** The PolicyReview row stores every check that ran,
+   not just the ones that failed. "This action was permitted because these
+   twelve bounds were checked and cleared" is the claim the audit trail exists
+   to support, and it cannot be made from a list of failures alone.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from typing import Any, Callable
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from recoup.db import (
+    ActionType,
+    Cohort,
+    ContactLog,
+    PolicyVerdict,
+    SpendLog,
+)
+from recoup.detect.features import is_quiet_hours
+from recoup.taxonomy import Strategy, profile_for
+
+
+# ---------------------------------------------------------------------------
+# The bounds themselves, in one reviewable block.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Bounds:
+    """Every limit Recoup operates under. Deliberately one small, readable object.
+
+    A reviewer should be able to read this dataclass and know exactly what the
+    system is permitted to do, without reading any other file.
+    """
+
+    max_contacts_per_customer_per_week: int = 3
+    """Message fatigue is the cost customers actually feel. Three touches in
+    seven days across all events - not per event, which is the loophole that
+    turns a reasonable cap into a spam cannon for anyone with several failures."""
+
+    quiet_hours_enforced: bool = True
+    """No customer contact between 21:00 and 08:00 IST."""
+
+    max_incentive_fraction: float = 0.15
+    """A discount may never exceed 15% of the order value."""
+
+    max_incentive_paise: int = 2_000_00
+    """...and never more than Rs 2,000 in absolute terms, whatever the order size.
+    A percentage cap alone is unbounded on a large enough order."""
+
+    daily_incentive_budget_paise: int = 25_000_00
+    """Rs 25,000 of discount per day, across everything. The blast radius of a
+    scoring bug is one day's budget."""
+
+    human_approval_above_paise: int = 25_000_00
+    """Above Rs 25,000 of exposure, a person decides. Not because the agent is
+    likely wrong, but because the cost of it being wrong stops being routine."""
+
+    min_expected_value_paise: int = 50_00
+    """Below Rs 50 of expected recovery, acting is not worth the channel cost or
+    the customer's attention."""
+
+    min_incremental_ev_ratio: float = 2.0
+    """An incentive must buy at least twice its own cost in expected incremental
+    recovery. Not 1.0 - break-even is not a reason to spend money, and the
+    estimate has error bars the ratio needs to absorb."""
+
+    max_attempts_override: int | None = None
+    """Set to tighten the per-reason attempt ceilings globally. None = trust the
+    taxonomy."""
+
+
+DEFAULT_BOUNDS = Bounds()
+
+
+# ---------------------------------------------------------------------------
+# Check plumbing
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Check:
+    name: str
+    passed: bool
+    verdict: PolicyVerdict
+    detail: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "passed": self.passed,
+            "verdict": self.verdict.value,
+            "detail": self.detail,
+        }
+
+
+@dataclass
+class ReviewContext:
+    """Everything the rules need, gathered once."""
+
+    event_id: str
+    customer_id: str
+    cohort: Cohort
+    reason_code: str
+    amount_paise: int
+    expected_value_paise: int
+    recoverability: float
+    earliest_action_at: datetime
+    attempts_so_far: int
+    action_type: ActionType
+    incentive_paise: int
+    now: datetime
+    bounds: Bounds = DEFAULT_BOUNDS
+
+
+@dataclass
+class Review:
+    verdict: PolicyVerdict
+    checks: list[Check] = field(default_factory=list)
+
+    @property
+    def violations(self) -> list[str]:
+        return [c.name for c in self.checks if not c.passed]
+
+    @property
+    def allowed(self) -> bool:
+        return self.verdict is PolicyVerdict.ALLOW
+
+
+CONTACT_ACTIONS = {
+    ActionType.NUDGE,
+    ActionType.NUDGE_WITH_INCENTIVE,
+    ActionType.PAYMENT_LINK,
+}
+"""Actions the customer perceives. Silent retries are not contact and are not
+counted against the fatigue cap - conflating them would make the system refuse
+to retry a bank outage because it had sent two emails last week."""
+
+
+# ---------------------------------------------------------------------------
+# Rules
+# ---------------------------------------------------------------------------
+
+
+def _rule_never_retry_risk_declines(ctx: ReviewContext, session: Session) -> Check:
+    profile = profile_for(ctx.reason_code)
+    if profile.strategy is Strategy.DO_NOT_RETRY:
+        ok = ctx.action_type in (ActionType.NO_ACTION, ActionType.ESCALATE_TO_HUMAN)
+        return Check(
+            "never_retry_risk_declines",
+            ok,
+            PolicyVerdict.ALLOW if ok else PolicyVerdict.DENY,
+            f"{ctx.reason_code} is do-not-retry; proposed {ctx.action_type.value}",
+        )
+    return Check(
+        "never_retry_risk_declines", True, PolicyVerdict.ALLOW, "not a do-not-retry reason"
+    )
+
+
+def _rule_unknown_reason_fails_closed(ctx: ReviewContext, session: Session) -> Check:
+    profile = profile_for(ctx.reason_code)
+    if profile.code == "unknown" and ctx.action_type not in (
+        ActionType.NO_ACTION,
+        ActionType.ESCALATE_TO_HUMAN,
+    ):
+        return Check(
+            "unknown_reason_fails_closed",
+            False,
+            PolicyVerdict.DENY,
+            f"reason '{ctx.reason_code}' is not in the taxonomy - refusing to guess",
+        )
+    return Check(
+        "unknown_reason_fails_closed", True, PolicyVerdict.ALLOW, "reason recognised"
+    )
+
+
+def _rule_attempt_cap(ctx: ReviewContext, session: Session) -> Check:
+    profile = profile_for(ctx.reason_code)
+    ceiling = profile.max_attempts
+    if ctx.bounds.max_attempts_override is not None:
+        ceiling = min(ceiling, ctx.bounds.max_attempts_override)
+
+    if ctx.action_type in (ActionType.NO_ACTION, ActionType.ESCALATE_TO_HUMAN):
+        return Check("attempt_cap", True, PolicyVerdict.ALLOW, "non-acting proposal")
+
+    ok = ctx.attempts_so_far < ceiling
+    return Check(
+        "attempt_cap",
+        ok,
+        PolicyVerdict.ALLOW if ok else PolicyVerdict.DENY,
+        f"{ctx.attempts_so_far} prior attempt(s), ceiling {ceiling} for {ctx.reason_code}",
+    )
+
+
+def _rule_timing_floor(ctx: ReviewContext, session: Session) -> Check:
+    if ctx.action_type in (ActionType.NO_ACTION, ActionType.ESCALATE_TO_HUMAN):
+        return Check("timing_floor", True, PolicyVerdict.ALLOW, "non-acting proposal")
+
+    ok = ctx.now >= ctx.earliest_action_at
+    wait = (ctx.earliest_action_at - ctx.now).total_seconds() / 3600
+    return Check(
+        "timing_floor",
+        ok,
+        PolicyVerdict.ALLOW if ok else PolicyVerdict.DENY,
+        "action window open"
+        if ok
+        else f"too early by {wait:.1f}h - acting now wastes the attempt",
+    )
+
+
+def _rule_quiet_hours(ctx: ReviewContext, session: Session) -> Check:
+    if not ctx.bounds.quiet_hours_enforced:
+        return Check("quiet_hours", True, PolicyVerdict.ALLOW, "not enforced")
+    if ctx.action_type not in CONTACT_ACTIONS:
+        return Check("quiet_hours", True, PolicyVerdict.ALLOW, "no customer contact")
+
+    quiet = is_quiet_hours(ctx.now)
+    return Check(
+        "quiet_hours",
+        not quiet,
+        PolicyVerdict.ALLOW if not quiet else PolicyVerdict.DENY,
+        "outside quiet hours" if not quiet else "21:00-08:00 IST - defer to morning",
+    )
+
+
+def _rule_contact_frequency(ctx: ReviewContext, session: Session) -> Check:
+    if ctx.action_type not in CONTACT_ACTIONS:
+        return Check("contact_frequency", True, PolicyVerdict.ALLOW, "no customer contact")
+
+    since = ctx.now - timedelta(days=7)
+    recent = session.scalar(
+        select(func.count())
+        .select_from(ContactLog)
+        .where(ContactLog.customer_id == ctx.customer_id, ContactLog.occurred_at >= since)
+    ) or 0
+
+    cap = ctx.bounds.max_contacts_per_customer_per_week
+    ok = recent < cap
+    return Check(
+        "contact_frequency",
+        ok,
+        PolicyVerdict.ALLOW if ok else PolicyVerdict.DENY,
+        f"{recent} contact(s) in the last 7 days, cap {cap}",
+    )
+
+
+def _rule_incentive_eligibility(ctx: ReviewContext, session: Session) -> Check:
+    if ctx.incentive_paise <= 0:
+        return Check("incentive_eligibility", True, PolicyVerdict.ALLOW, "no incentive")
+
+    profile = profile_for(ctx.reason_code)
+    ok = profile.incentive_eligible
+    return Check(
+        "incentive_eligibility",
+        ok,
+        PolicyVerdict.ALLOW if ok else PolicyVerdict.DENY,
+        "intent-driven failure - discount can move it"
+        if ok
+        else f"{ctx.reason_code} is a technical failure; a discount buys nothing",
+    )
+
+
+def _rule_incentive_depth(ctx: ReviewContext, session: Session) -> Check:
+    if ctx.incentive_paise <= 0:
+        return Check("incentive_depth", True, PolicyVerdict.ALLOW, "no incentive")
+
+    if ctx.amount_paise <= 0:
+        return Check(
+            "incentive_depth", False, PolicyVerdict.DENY, "order value unknown - fail closed"
+        )
+
+    frac = ctx.incentive_paise / ctx.amount_paise
+    over_frac = frac > ctx.bounds.max_incentive_fraction
+    over_abs = ctx.incentive_paise > ctx.bounds.max_incentive_paise
+    ok = not (over_frac or over_abs)
+
+    reasons = []
+    if over_frac:
+        reasons.append(f"{frac:.1%} > {ctx.bounds.max_incentive_fraction:.0%} cap")
+    if over_abs:
+        reasons.append(
+            f"Rs {ctx.incentive_paise/100:,.0f} > Rs {ctx.bounds.max_incentive_paise/100:,.0f} absolute cap"
+        )
+
+    return Check(
+        "incentive_depth",
+        ok,
+        PolicyVerdict.ALLOW if ok else PolicyVerdict.DENY,
+        f"Rs {ctx.incentive_paise/100:,.0f} ({frac:.1%})"
+        if ok
+        else "; ".join(reasons),
+    )
+
+
+def _rule_incentive_ev_positive(ctx: ReviewContext, session: Session) -> Check:
+    """A discount must buy more than it costs - by a margin, not at break-even.
+
+    The incremental gain is estimated as the incentive's share of remaining
+    upside, which is intentionally conservative: it never credits a discount for
+    recovery that would have happened anyway.
+    """
+    if ctx.incentive_paise <= 0:
+        return Check("incentive_ev_positive", True, PolicyVerdict.ALLOW, "no incentive")
+
+    headroom = max(0.0, 1.0 - ctx.recoverability)
+    est_incremental_paise = int(headroom * 0.35 * ctx.amount_paise)
+    ratio = est_incremental_paise / ctx.incentive_paise if ctx.incentive_paise else 0.0
+    ok = ratio >= ctx.bounds.min_incremental_ev_ratio
+
+    return Check(
+        "incentive_ev_positive",
+        ok,
+        PolicyVerdict.ALLOW if ok else PolicyVerdict.DENY,
+        f"est. incremental Rs {est_incremental_paise/100:,.0f} vs cost "
+        f"Rs {ctx.incentive_paise/100:,.0f} (ratio {ratio:.1f}x, "
+        f"need {ctx.bounds.min_incremental_ev_ratio:.1f}x)",
+    )
+
+
+def _rule_daily_budget(ctx: ReviewContext, session: Session) -> Check:
+    if ctx.incentive_paise <= 0:
+        return Check("daily_budget", True, PolicyVerdict.ALLOW, "no spend")
+
+    day_start = ctx.now.replace(hour=0, minute=0, second=0, microsecond=0)
+    spent = session.scalar(
+        select(func.coalesce(func.sum(SpendLog.amount_paise), 0)).where(
+            SpendLog.occurred_at >= day_start
+        )
+    ) or 0
+
+    budget = ctx.bounds.daily_incentive_budget_paise
+    ok = spent + ctx.incentive_paise <= budget
+    return Check(
+        "daily_budget",
+        ok,
+        PolicyVerdict.ALLOW if ok else PolicyVerdict.DENY,
+        f"Rs {spent/100:,.0f} spent today + Rs {ctx.incentive_paise/100:,.0f} "
+        f"vs Rs {budget/100:,.0f} budget",
+    )
+
+
+def _rule_minimum_expected_value(ctx: ReviewContext, session: Session) -> Check:
+    if ctx.action_type in (ActionType.NO_ACTION, ActionType.ESCALATE_TO_HUMAN):
+        return Check("minimum_expected_value", True, PolicyVerdict.ALLOW, "non-acting")
+
+    ok = ctx.expected_value_paise >= ctx.bounds.min_expected_value_paise
+    return Check(
+        "minimum_expected_value",
+        ok,
+        PolicyVerdict.ALLOW if ok else PolicyVerdict.DENY,
+        f"EV Rs {ctx.expected_value_paise/100:,.0f} vs floor "
+        f"Rs {ctx.bounds.min_expected_value_paise/100:,.0f}",
+    )
+
+
+def _rule_high_value_needs_human(ctx: ReviewContext, session: Session) -> Check:
+    """Not a denial - an escalation. The action may well be right."""
+    if ctx.action_type in (ActionType.NO_ACTION, ActionType.ESCALATE_TO_HUMAN):
+        return Check("high_value_needs_human", True, PolicyVerdict.ALLOW, "non-acting")
+
+    if ctx.amount_paise >= ctx.bounds.human_approval_above_paise:
+        return Check(
+            "high_value_needs_human",
+            False,
+            PolicyVerdict.ESCALATE,
+            f"Rs {ctx.amount_paise/100:,.0f} exceeds the Rs "
+            f"{ctx.bounds.human_approval_above_paise/100:,.0f} autonomy limit",
+        )
+    return Check("high_value_needs_human", True, PolicyVerdict.ALLOW, "within autonomy limit")
+
+
+def _rule_control_arm_is_never_executed(ctx: ReviewContext, session: Session) -> Check:
+    """The holdout is only worth holding if it is genuinely held.
+
+    Last check to run and the one that must never be relaxed for a demo. A
+    control arm that gets acted on "just this once" is not a control arm, and
+    every number computed from it afterwards is fiction.
+    """
+    if ctx.cohort is not Cohort.CONTROL:
+        return Check(
+            "control_arm_suppression", True, PolicyVerdict.ALLOW, "treatment arm"
+        )
+    if ctx.action_type in (ActionType.NO_ACTION, ActionType.ESCALATE_TO_HUMAN):
+        return Check("control_arm_suppression", True, PolicyVerdict.ALLOW, "non-acting")
+    return Check(
+        "control_arm_suppression",
+        False,
+        PolicyVerdict.DENY,
+        "control arm - decision recorded, execution suppressed",
+    )
+
+
+RULES: list[Callable[[ReviewContext, Session], Check]] = [
+    _rule_unknown_reason_fails_closed,
+    _rule_never_retry_risk_declines,
+    _rule_attempt_cap,
+    _rule_timing_floor,
+    _rule_quiet_hours,
+    _rule_contact_frequency,
+    _rule_incentive_eligibility,
+    _rule_incentive_depth,
+    _rule_incentive_ev_positive,
+    _rule_daily_budget,
+    _rule_minimum_expected_value,
+    _rule_high_value_needs_human,
+    _rule_control_arm_is_never_executed,
+]
+
+
+def review(ctx: ReviewContext, session: Session) -> Review:
+    """Run every rule. All of them, always - no short-circuiting.
+
+    Stopping at the first failure would be faster and would make the audit trail
+    useless: "denied by quiet_hours" hides that the action also blew the budget
+    and exceeded the attempt cap. Recoup runs the full set so the record shows
+    everything that was wrong, not merely the first thing noticed.
+    """
+    checks = [rule(ctx, session) for rule in RULES]
+
+    if any(c.verdict is PolicyVerdict.DENY and not c.passed for c in checks):
+        verdict = PolicyVerdict.DENY
+    elif any(c.verdict is PolicyVerdict.ESCALATE and not c.passed for c in checks):
+        verdict = PolicyVerdict.ESCALATE
+    else:
+        verdict = PolicyVerdict.ALLOW
+
+    return Review(verdict=verdict, checks=checks)
