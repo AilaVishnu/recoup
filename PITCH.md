@@ -109,18 +109,18 @@ is a bad five minutes, and it is avoidable.
 
 *Switch to the terminal showing the eval report.*
 
-> Gross recovery is 26.9%. The control arm recovered 19.9% **with no help at
-> all**. So the honest number is the difference: **+7 percentage points**, about
-> ₹1.3 lakh that would not have come back.
+> Gross recovery is 27.4%. The control arm recovered 19.9% **with no help at
+> all**. So the honest number is the difference: **seven and a half percentage
+> points**, about ₹1.3 lakh that would not have come back.
 >
-> A tool without a holdout would have put 26.9% on the slide.
+> A tool without a holdout would have put 27.4% on the slide.
 
 *Point at the CI.*
 
-> And I have to say this: **the 95% interval includes zero.** The point estimate
-> stays positive across the whole pessimistic-to-optimistic sweep, but at 600
-> events I cannot rule out no effect, and the report says that on its own front
-> panel rather than quoting the point estimate alone.
+> And I have to say this: **the interval barely clears zero** — the low end is
+> plus nought point two. At 600 events that's a weak result, not a strong one,
+> and it wouldn't survive a smaller holdout. The report leads with the interval
+> rather than the point estimate for exactly that reason.
 >
 > The rupee figures are simulated — I don't have a real merchant's post-failure
 > customer behaviour. What's *real* is the decision quality, and the pipeline is
@@ -173,5 +173,6 @@ chased an implausible number instead of shipping it, and that you published a
 figure that went *down* after you fixed your own code, is the strongest signal in
 five minutes of video.
 
-**Say "the interval includes zero" out loud.** A reviewer who spots it themselves
-will assume you hoped they wouldn't.
+**Say "the low end is plus nought point two" out loud.** The interval clears zero
+by a hair, which is a weak result honestly reported rather than a strong one. A
+reviewer who works that out themselves will assume you hoped they wouldn't.

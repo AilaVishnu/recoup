@@ -171,26 +171,31 @@ Seed 42 · 600 events · ₹34.5L at risk
 
 | | |
 |---|---|
-| **Incremental recovery rate** | **+7.0pp** (95% CI −0.3 … +14.3) |
-| Incremental recovered | **₹1.3L** across 45 events |
-| Gross recovery rate | 26.9% — *what a system without a holdout would claim* |
+| **Incremental recovery rate** | **+7.5pp** (95% CI +0.2 … +14.7) |
+| Incremental recovered | **₹1.3L** across 47 events |
+| Gross recovery rate | 27.4% — *what a system without a holdout would claim* |
 | Control arm | 19.9% — *recovered with no help at all* |
 | Events harmed | 0 |
-| Sensitivity range | +2.3pp (pessimistic) → +9.6pp (optimistic) |
+| Sensitivity range | +2.3pp (pessimistic) → +9.8pp (optimistic) |
 
-The gap between 26.9% and +7.0pp is the entire point of this project. A recovery
+Reproducible from a clean checkout with **no keys configured at all**:
+`seed.py && run_pipeline.py && run_eval.py`. Keys upgrade simulated execution to
+real Razorpay calls and taxonomy-only decisions to model-assisted ones; they do
+not gate the run.
+
+The gap between 27.4% and +7.5pp is the entire point of this project. A recovery
 tool without a holdout would have reported the first number.
 
 **Caveats, stated rather than buried:**
 
-- **The 95% interval includes zero.** The point estimate is positive and stays
-  positive across the whole pessimistic-to-optimistic sweep, but at 600 events
-  this sample cannot rule out no effect. The report says so on its own front
-  panel rather than quoting the point estimate alone.
-- An earlier version of this table read +7.9pp. Fixing an attempt cap that
-  could never fire removed 13 events that should never have been acted on, and
-  the headline came down with them. A fix that lowers your own number is still
-  a fix.
+- **The interval barely clears zero** (+0.2pp at the low end). At 600 events
+  this is a weak result, not a strong one, and it would not survive a much
+  smaller holdout. The report leads with the interval rather than the point
+  estimate for that reason.
+- **This number has moved twice, downward both times, and both moves were
+  fixes.** It read +7.9pp until an attempt cap that could never fire started
+  denying 13 events it should always have denied. A figure that only looks good
+  until you fix your own bugs is not a figure worth defending.
 - **Cannibalisation is ₹0 and currently cannot be otherwise** — incentives are
   only proposed on the LLM path, so without an API key the metric is implemented
   and tested but never exercised.

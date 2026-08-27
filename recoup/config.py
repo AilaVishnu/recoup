@@ -22,6 +22,26 @@ DECISION_MODEL = "claude-opus-5"
 DECISION_EFFORT = "medium"
 
 
+def _is_placeholder(value: str) -> bool:
+    """True for a value that is obviously a stand-in rather than a credential.
+
+    Fixing .env.example is not enough on its own: an .env copied from an older
+    revision, or a key someone meant to paste over and did not, produces the same
+    failure. And that failure is nasty out of proportion to its cause - a dummy
+    key is indistinguishable from a real one to an SDK, so the setup check
+    reports "rejected" rather than "absent", every gateway call fails against
+    credentials that were never meant to work, and the headline result comes out
+    negative for reasons that have nothing to do with the system being measured.
+
+    Treating these as absent puts the project back on the path it handles well:
+    no key means simulate, say so, and carry on.
+    """
+    v = value.strip().lower()
+    if not v:
+        return True
+    return "xxxx" in v or v in {"changeme", "your-key-here", "todo", "none"}
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
@@ -75,7 +95,10 @@ class Settings(BaseSettings):
 
     @property
     def razorpay_configured(self) -> bool:
-        return bool(self.razorpay_key_id and self.razorpay_key_secret)
+        return not (
+            _is_placeholder(self.razorpay_key_id)
+            or _is_placeholder(self.razorpay_key_secret)
+        )
 
     @property
     def anthropic_configured(self) -> bool:
@@ -83,10 +106,12 @@ class Settings(BaseSettings):
 
     @property
     def llm_api_key(self) -> str:
-        """The key for whichever provider is active."""
+        """The key for whichever provider is active, or "" if it is a placeholder."""
         if (self.llm_provider or "anthropic").strip().lower() == "openai":
-            return self.openai_api_key
-        return self.anthropic_api_key
+            key = self.openai_api_key
+        else:
+            key = self.anthropic_api_key
+        return "" if _is_placeholder(key) else key
 
     @property
     def llm_model(self) -> str:

@@ -355,23 +355,24 @@ Against real traffic the priors would be wrong on day one, which is what
 
 | | |
 |---|---|
-| **Incremental recovery rate** | **+7.0pp** (95% CI −0.3 … +14.3) |
-| Incremental recovered | ₹1.3L across 45 events |
-| Gross recovery rate | 26.9% — *what a system without a holdout would claim* |
+| **Incremental recovery rate** | **+7.5pp** (95% CI +0.2 … +14.7) |
+| Incremental recovered | ₹1.3L across 47 events |
+| Gross recovery rate | 27.4% — *what a system without a holdout would claim* |
 | Control arm recovery rate | 19.9% — *with no help at all* |
 | Cost (channel) | ₹29 |
 | Events harmed | 0 |
-| Sensitivity range | +2.3pp (pessimistic) → +9.6pp (optimistic) |
+| Sensitivity range | +2.3pp (pessimistic) → +9.8pp (optimistic) |
+
+Reproducible from a clean checkout with no keys configured.
 
 **Caveats, stated rather than buried:**
 
-- **The 95% interval includes zero** (−0.3 … +14.3pp). The point estimate is
-  positive and stays positive across the whole sweep; the interval does not
-  exclude no-effect at this sample size. Both facts belong in any honest
-  reading, and the report leads with the caveat rather than the point estimate.
-- This table previously read +7.9pp. Fixing an attempt cap that could never
-  fire (§12) removed 13 events that should never have been acted on, and the
-  headline came down with them.
+- **The interval barely clears zero** (+0.2 … +14.7pp). At 600 events this is a
+  weak result rather than a strong one, and it would not survive a much smaller
+  holdout. The report leads with the interval rather than the point estimate.
+- **This figure has moved twice, downward both times, and both moves were
+  fixes** (§12, §12.1). It read +7.9pp until an attempt cap that could never
+  fire began denying 13 events it should always have denied.
 - **Cannibalisation is ₹0 and currently cannot be otherwise.** Incentives are
   only ever proposed on the LLM path, and without `ANTHROPIC_API_KEY` every
   decision falls back to the rules engine, which proposes plain nudges. That
