@@ -159,22 +159,26 @@ Seed 42 · 600 events · ₹34.5L at risk
 
 | | |
 |---|---|
-| **Incremental recovery rate** | **+7.9pp** (95% CI +0.7 … +15.2) |
-| Incremental recovered | **₹1,37,386** across 49 events |
-| Gross recovery rate | 27.8% — *what a system without a holdout would claim* |
+| **Incremental recovery rate** | **+7.0pp** (95% CI −0.3 … +14.3) |
+| Incremental recovered | **₹1.3L** across 45 events |
+| Gross recovery rate | 26.9% — *what a system without a holdout would claim* |
 | Control arm | 19.9% — *recovered with no help at all* |
-| Net after cost | ₹1,37,355 |
 | Events harmed | 0 |
-| Sensitivity range | +3.0pp (pessimistic) → +10.8pp (optimistic) |
+| Sensitivity range | +2.3pp (pessimistic) → +9.6pp (optimistic) |
 
-The gap between 27.8% and +7.9pp is the entire point of this project. A recovery
+The gap between 26.9% and +7.0pp is the entire point of this project. A recovery
 tool without a holdout would have reported the first number.
 
 **Caveats, stated rather than buried:**
 
-- At **pessimistic** assumptions the confidence interval **crosses zero**
-  (−4.1 … +10.1pp). The point estimate stays positive across the whole sweep;
-  the interval does not. Both facts belong in an honest reading.
+- **The 95% interval includes zero.** The point estimate is positive and stays
+  positive across the whole pessimistic-to-optimistic sweep, but at 600 events
+  this sample cannot rule out no effect. The report says so on its own front
+  panel rather than quoting the point estimate alone.
+- An earlier version of this table read +7.9pp. Fixing an attempt cap that
+  could never fire removed 13 events that should never have been acted on, and
+  the headline came down with them. A fix that lowers your own number is still
+  a fix.
 - **Cannibalisation is ₹0 and currently cannot be otherwise** — incentives are
   only proposed on the LLM path, so without an API key the metric is implemented
   and tested but never exercised.
@@ -195,7 +199,7 @@ python scripts/seed.py            # build the synthetic merchant
 python scripts/run_pipeline.py    # assess → decide → review → act
 python scripts/run_eval.py        # grade it honestly
 python scripts/serve.py           # dashboard on :8000
-pytest -q                         # 203 tests
+pytest -q                         # 231 tests
 ```
 
 Recoup refuses to start against a `rzp_live_` key. It sends messages and spends
@@ -213,7 +217,7 @@ structurally impossible rather than merely intended.
 | ✅ Synthetic merchant + world model | `recoup/seed/` |
 | ✅ Feature extraction, incl. liquidity-window timing | `recoup/detect/features.py` |
 | ✅ Recoverability scorer + empirical recalibration | `recoup/detect/scorer.py` |
-| ✅ Policy engine — 13 bounds | `recoup/policy/rules.py` |
+| ✅ Policy engine — 13 bounds + an input-validation gate, 27 bypass tests | `recoup/policy/rules.py` |
 | ✅ Action executors against Razorpay test mode | `recoup/execute/` |
 | ✅ Agent decision layer — routes to the model only where it earns its place | `recoup/agent/` |
 | ✅ Eval harness — incremental lift, cannibalisation, sensitivity sweep | `recoup/eval/` |

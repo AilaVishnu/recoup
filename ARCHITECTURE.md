@@ -59,8 +59,8 @@ claim, and a system that cannot measure itself is not one worth deploying.
 
 The agent proposes. A deterministic **policy engine** disposes.
 
-Thirteen bounds run *after* the model has spoken, on every decision, with no
-short-circuiting. The model has no way to reach around them, because they are
+Thirteen bounds — plus an input-validation gate that fails closed — run *after*
+the model has spoken, on every decision, with no short-circuiting. The model has no way to reach around them, because they are
 not instructions it was given — they are code that runs on its output.
 
 This matters more than it first appears. Prompt-level guardrails fail
@@ -297,7 +297,7 @@ This section is the one to read before believing any number.
 failure reason, respects its bounds, refuses to retry risk declines, times
 liquidity retries sensibly, defers out of quiet hours, and never exceeds budget.
 These are properties of the code and hold regardless of any simulation
-parameter. 203 tests cover them.
+parameter. 231 tests cover them, including 27 adversarial bypass attempts.
 
 **Simulated — the rupee figures.** Recoup has no access to a real merchant's
 post-failure customer behaviour, so outcomes come from `seed/world.py`. Its lift
@@ -329,20 +329,23 @@ Against real traffic the priors would be wrong on day one, which is what
 
 | | |
 |---|---|
-| **Incremental recovery rate** | **+7.9pp** (95% CI +0.7 … +15.2) |
-| Incremental recovered | ₹1,37,386 across 49 events |
-| Gross recovery rate | 27.8% — *what a system without a holdout would claim* |
+| **Incremental recovery rate** | **+7.0pp** (95% CI −0.3 … +14.3) |
+| Incremental recovered | ₹1.3L across 45 events |
+| Gross recovery rate | 26.9% — *what a system without a holdout would claim* |
 | Control arm recovery rate | 19.9% — *with no help at all* |
-| Cost (channel) | ₹31 |
-| Net | ₹1,37,355 |
+| Cost (channel) | ₹29 |
 | Events harmed | 0 |
-| Sensitivity range | +3.0pp (pessimistic) → +10.8pp (optimistic) |
+| Sensitivity range | +2.3pp (pessimistic) → +9.6pp (optimistic) |
 
 **Caveats, stated rather than buried:**
 
-- At **pessimistic** assumptions the confidence interval **crosses zero**
-  (−4.1 … +10.1pp). The point estimate stays positive across the whole sweep;
-  the interval does not. Both facts belong in any honest reading.
+- **The 95% interval includes zero** (−0.3 … +14.3pp). The point estimate is
+  positive and stays positive across the whole sweep; the interval does not
+  exclude no-effect at this sample size. Both facts belong in any honest
+  reading, and the report leads with the caveat rather than the point estimate.
+- This table previously read +7.9pp. Fixing an attempt cap that could never
+  fire (§12) removed 13 events that should never have been acted on, and the
+  headline came down with them.
 - **Cannibalisation is ₹0 and currently cannot be otherwise.** Incentives are
   only ever proposed on the LLM path, and without `ANTHROPIC_API_KEY` every
   decision falls back to the rules engine, which proposes plain nudges. That
@@ -382,6 +385,39 @@ mode in the report header where it cannot be missed. What decides an outcome is
 The failing test was rewritten rather than deleted — it now seeds the same event
 twice, once per transport, and asserts the outcomes are identical.
 
+### 12.1 Two bounds that could not fire
+
+An adversarial review wrote 27 tests against the policy engine. All 27 passed
+against code that should have refused them. Two findings stand out because the
+bounds in question were *advertised* and doing nothing:
+
+**`attempt_cap` was structurally inert.** It counted only `ActionRun`s Recoup
+had made, and `run()` processes each event exactly once and leaves it non-OPEN —
+so the count was always zero and the rule could never deny anything.
+`RevenueEvent.attempt_no` was invisible to policy. A `card_expired` order on its
+fourth attempt, against a taxonomy ceiling of one, executed. The dashboard would
+have shown "zero denials", which reads as *nothing ever hit the cap* rather than
+*the cap cannot fire*. It now denies 13 events in a full run.
+
+**`ESCALATE` queued nothing.** Policy escalation set `AWAITING_APPROVAL` and
+returned — no `ActionRun`, no queue entry, nothing anywhere listing the event for
+a person. A ₹5,00,000 receivable sat unrecovered and unnoticed. These are by
+definition the highest-value events in the system.
+
+Also closed: `Bounds` was a caller-supplied argument that could *loosen* every
+limit with no trace in the audit row; the control-arm rule compared by identity
+so a cohort arriving as a plain string was waved through as treatment;
+`review()` raised instead of denying on five malformed inputs, leaving no
+`PolicyReview` row at all; a `Review` carried no provenance, so a genuine ALLOW
+for one event authorised a fraud retry on another; and `delay_hours` was
+validated, persisted, and read by nothing.
+
+**One defect the fixes introduced, caught by the next run.** The executor's new
+control-arm check refused `NO_ACTION` and escalations on held-out events. Those
+touch nothing outside the database and are exactly how a control event gets its
+decision recorded without being acted on — refusing them would leave the holdout
+with no audit trail and make the counterfactual unreadable.
+
 ---
 
 ## 13. What would change for production
@@ -410,7 +446,7 @@ python scripts/seed.py            # build the synthetic merchant
 python scripts/run_pipeline.py    # assess → decide → review → act
 python scripts/run_eval.py        # grade it honestly
 python scripts/serve.py           # dashboard on :8000
-pytest -q                         # 203 tests
+pytest -q                         # 231 tests
 ```
 
 Recoup refuses to start against a `rzp_live_` key. It sends messages and spends
