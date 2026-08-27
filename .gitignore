@@ -9,3 +9,4 @@ data/reports/
 .pytest_cache/
 .DS_Store
 data/oracle.json
+data/outbox.jsonl
