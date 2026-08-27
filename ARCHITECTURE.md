@@ -1,0 +1,418 @@
+# Recoup — Architecture
+
+A bounded revenue-recovery agent for Razorpay merchants.
+Razorpay AI Buildathon 2026 · Track 3, AI Revenue Recovery.
+
+---
+
+## 1. The problem, stated precisely
+
+A merchant on Razorpay loses revenue in three ways that look different but are
+the same shape: a payment is attempted and fails, a checkout is started and
+abandoned, an invoice is issued and goes past due. In each case the customer
+wanted to buy, the merchant wanted to sell, and the money did not move.
+
+The naive response is to chase all of it. That fails for a reason worth stating
+plainly: **a large fraction of that revenue arrives anyway.** The bank outage
+ends, the customer retries, the invoice gets paid on the 5th. A recovery system
+that emails everyone and counts what comes back will report a large number, and
+most of that number will be revenue it had nothing to do with.
+
+So the real problem is not *how do I recover more?* It is:
+
+1. **Which** at-risk revenue is actually recoverable by acting?
+2. **What** action, specifically, for this failure?
+3. **How much** of what came back can I honestly claim?
+4. **What is the system allowed to do** while it finds out?
+
+Recoup is organised around those four questions, in that order.
+
+---
+
+## 2. The two claims this architecture exists to support
+
+Everything below is downstream of two decisions. If you read nothing else, read
+this section.
+
+### 2.1 Incremental measurement, via a randomised holdout
+
+30% of events are randomly assigned to a **control arm** at generation time.
+Control events are scored and decided *exactly* as treatment events are — the
+full reasoning chain is computed and persisted — and execution is suppressed at
+the final step.
+
+This is deliberately more expensive than an untouched control group. It means
+that for every held-out event we know precisely **what Recoup would have done**,
+not merely that it did nothing. The comparison is against an inspectable
+counterfactual rather than a population we hope is comparable.
+
+The headline number is the **difference between arms**. Gross recovery is
+reported beside it, explicitly labelled as the number a system without a holdout
+would have claimed, so the gap between the flattering figure and the honest one
+is visible rather than hidden.
+
+Cost: ~₹11.7L of at-risk value goes untouched in the reference dataset. At 600
+events a 10% holdout would leave the lift estimate too noisy to support any
+claim, and a system that cannot measure itself is not one worth deploying.
+
+### 2.2 Bounded autonomy, enforced in code rather than in a prompt
+
+The agent proposes. A deterministic **policy engine** disposes.
+
+Thirteen bounds run *after* the model has spoken, on every decision, with no
+short-circuiting. The model has no way to reach around them, because they are
+not instructions it was given — they are code that runs on its output.
+
+This matters more than it first appears. Prompt-level guardrails fail
+*silently*: a model told "never discount more than 15%" will mostly comply, and
+the one time it doesn't, nothing catches it and nothing records it. A rule that
+runs afterward catches it every time and writes down that it caught it.
+
+Every check is persisted — **the passes as well as the failures**. "This action
+was permitted because these thirteen bounds were checked and cleared" is a claim
+the audit trail must be able to support, and it cannot be made from a list of
+failures alone.
+
+---
+
+## 3. System shape
+
+```
+                    ┌─────────────────┐
+                    │  taxonomy.py    │  16 reason codes → strategy,
+                    │  (domain core)  │  attempt ceiling, wait, incentive
+                    └────────┬────────┘  eligibility
+                             │ every stage reads from here
+   ┌─────────────────────────┼─────────────────────────────────────┐
+   ▼                         ▼                                     ▼
+┌──────────┐  ┌──────────┐  ┌──────────┐  ┌───────────┐  ┌────────────┐
+│ detect/  │→ │  agent/  │→ │ policy/  │→ │ execute/  │→ │   eval/    │
+│  ASSESS  │  │  DECIDE  │  │  REVIEW  │  │    ACT    │  │  MEASURE   │
+└──────────┘  └──────────┘  └──────────┘  └───────────┘  └────────────┘
+     │             │             │              │              │
+     ▼             ▼             ▼              ▼              ▼
+ Assessment    Decision    PolicyReview     ActionRun       Outcome
+     └─────────────┴─────────────┴──────────────┴──────────────┘
+                              │
+                    one immutable row per stage
+                              │
+                              ▼
+                     ┌─────────────────┐
+                     │   api/ + web/   │  replay any event end to end
+                     └─────────────────┘
+```
+
+`pipeline.py` is the only place these meet. It is deliberately thin — each stage
+is tested in isolation, so what the orchestrator must get right is the *order*
+and the *timing*.
+
+---
+
+## 4. The domain core: `taxonomy.py`
+
+The single most load-bearing file, and the one that separates this from a
+generic "LLM reads a CSV" project.
+
+**A failed payment is not one thing.** An issuer outage and a fraud decline both
+surface as "payment failed", but one should be retried untouched in two hours
+and the other must never be retried at all. Systems that treat them alike burn
+money and — worse — push risk-declined transactions back through the rails,
+earning the merchant a higher decline rate and a chargeback problem.
+
+Sixteen reason codes, mapped against Razorpay's `error_source` / `error_step`
+schema, each carrying:
+
+| Field | Why it exists |
+|---|---|
+| `strategy` | Retry now / retry delayed / retry on liquidity / switch rail / persuade / **do not retry** |
+| `base_recoverability` | Prior for the scorer, superseded by fitted rates once outcomes exist |
+| `retry_after_minutes` | Acting earlier wastes the attempt — the balance hasn't changed, the outage hasn't ended |
+| `max_attempts` | Hard per-reason ceiling |
+| `incentive_eligible` | Whether spending money could plausibly change the outcome |
+| `switch_to` | Which rails are worth offering instead |
+
+**Only 2 of 16 reason codes permit spending money** — `payment_cancelled` and
+`checkout_abandoned`. That constraint is derived from the domain, not from a
+budget setting: a discount can only move a failure whose cause was *intent*.
+Discounting a bank outage is pure margin burn — you paid a customer to do what
+they were already going to do.
+
+Unrecognised codes fail closed: no action, surfaced for a human, counted as a
+coverage metric rather than quietly dropped.
+
+---
+
+## 5. Assess — `detect/`
+
+Deterministic. No model, no randomness, no network.
+
+`features.py` extracts observable signals only. The interesting one:
+
+**`liquidity_window()`** — salaried accounts in India are credited around the
+last working day of the month, and the balance survives into the first few days
+of the next. So the recoverable window for an `insufficient_funds` failure is
+roughly the 1st–5th, and a retry on the 22nd is close to guaranteed waste. Not
+because the strategy is wrong — because the money isn't there yet. Getting this
+right is most of the value in that bucket.
+
+`scorer.py` combines the taxonomy prior with customer history, ticket size,
+attempt number and time decay to produce P(recovered | we act) and an expected
+value. It also carries `fit_from_outcomes()`, which estimates per-reason rates
+from *observed treatment-arm outcomes* and shrinks them toward the prior in
+proportion to how little evidence exists (25 pseudo-observations). That stops a
+bucket with four events and three lucky recoveries from declaring itself a 75%
+opportunity.
+
+Every score records which basis produced it — `prior` or `fitted:n` — and that
+label is surfaced in the UI.
+
+---
+
+## 6. Decide — `agent/`
+
+**The LLM is deliberately not in the hot path.**
+
+`router.py` escalates to the model only where the deterministic path is
+genuinely underdetermined: incentive-eligible reasons (how deep to discount is a
+judgement call), high exposure where a wrong call is costly, conflicting signals,
+and repeat attempts where the obvious action already failed. Everything else is
+settled by `rules_engine.py` straight from the taxonomy.
+
+Calling a model 600 times to be told what a lookup table already knew is
+expensive theatre. Knowing when *not* to call a model is part of the design.
+
+`brain.py` uses `claude-opus-5` with adaptive thinking and **structured output**,
+so a decision is machine-valid rather than parsed out of prose. What comes back
+is validated anyway — unknown action types rejected, incentives clamped,
+ineligible incentives dropped. The policy engine is the real gate; this just
+keeps malformed proposals out of the audit trail.
+
+`prompts.py` renders the bounds **from `policy.rules.Bounds` directly** rather
+than restating them. A hardcoded copy would drift out of sync with the real
+rules, and the failure mode is silent: the model would propose inside limits
+that no longer exist.
+
+**Degradation:** with no API key, `brain` falls back to the rules engine and
+records the decision as `RULES`, not `LLM`. Counting a fallback as an LLM
+decision would inflate exactly the number used to argue the model is used
+sparingly.
+
+---
+
+## 7. Review — `policy/`
+
+The bounds, in one reviewable dataclass:
+
+| Bound | Limit |
+|---|---|
+| Contact frequency | 3 per customer per 7 days, **across all their events** |
+| Quiet hours | No contact 21:00–08:00 IST |
+| Incentive depth | ≤15% of order value **and** ≤₹2,000 absolute |
+| Incentive eligibility | Intent-driven failures only |
+| Incentive EV hurdle | Must buy ≥2× its cost in expected incremental recovery |
+| Daily budget | ₹25,000/day across everything |
+| Autonomy limit | >₹25,000 exposure → escalate to a human |
+| Minimum EV | <₹50 expected → not worth the channel cost |
+| Attempt cap | Per-reason, from the taxonomy |
+| Timing floor | Never before the action window opens |
+| Never-retry | Fraud declines, always |
+| Unknown reason | Fail closed |
+| Control arm | Never executed |
+
+Two properties every rule holds to:
+
+**Fail closed.** A rule that cannot evaluate — missing data, unknown code,
+arithmetic it can't complete — denies. Recovery is worth money; uncontrolled
+action costs more.
+
+**No short-circuiting.** All thirteen run even after the first failure. Stopping
+early would be faster and would make the audit trail useless: "denied by
+quiet_hours" hides that the action also blew the budget and exceeded the attempt
+cap.
+
+Note the contact cap is **per customer, not per event** — the loophole that turns
+a reasonable limit into a spam cannon for anyone with several failures. And
+silent retries are not counted as contact, because conflating them would make the
+system refuse to retry a bank outage on account of an unrelated email last week.
+
+---
+
+## 8. Act — `execute/`
+
+`razorpay_client.py` wraps the SDK behind a single error type so a raw SDK
+exception never escapes into decision code. Retries 5xx and gateway errors twice
+with backoff; **never retries a 4xx** — a request rejected for a reason will be
+rejected again, and retrying a payment call is how you double-charge someone.
+
+`RECOUP_DRY_RUN` returns deterministic, obviously-fake responses without touching
+the network, so the pipeline runs fully with no keys configured.
+
+`outbox.py` never messages a real customer in *any* mode. It persists to
+`data/outbox.jsonl` with real per-channel costs (email 10p, SMS 25p). Those
+numbers are not decorative — the eval subtracts them from gross recovery, so a
+zero would become a lie in the report.
+
+`actions.py` refuses to execute unless the policy review allowed it. The caller
+already checks, which is exactly why this checks too: the one path that forgets
+is the one that matters.
+
+---
+
+## 9. Measure — `eval/`
+
+The subsystem the project's credibility rests on.
+
+**Frozen rolls.** Each event's luck is drawn once at generation time and reused.
+Treatment and control therefore face *identical* luck, so measured lift reflects
+the decision rather than sampling noise.
+
+**Attribution.** An event is credited to the agent only when it recovered **and**
+the counterfactual says it would not have. Recovering *after* an action is not
+recovering *because of* one. Three buckets:
+
+- `AGENT` — recovered only under the action taken. Claimable.
+- `ORGANIC` — would have recovered anyway. Recoup takes no credit.
+- `UNCLEAR` — reported separately, never folded into the headline.
+
+**Cannibalisation** — money spent on customers whose outcome came back `ORGANIC`,
+i.e. we paid people to do what they were already going to do. This is the
+false-positive cost, and a recovery system that cannot state it does not know
+whether it is profitable.
+
+**Unreliable segments** are flagged, not quietly reported. Any segment with <30
+events per arm is marked, because a 3-event bucket with 2 recoveries is not a 67%
+recovery rate.
+
+**Sensitivity sweep.** Outcomes are re-resolved under pessimistic, default and
+optimistic lift assumptions and the *range* is reported. A result that only holds
+at one parameter setting is not a result.
+
+---
+
+## 10. What is real and what is simulated
+
+This section is the one to read before believing any number.
+
+**Real — decision quality.** Whether Recoup picks the right strategy for a
+failure reason, respects its bounds, refuses to retry risk declines, times
+liquidity retries sensibly, defers out of quiet hours, and never exceeds budget.
+These are properties of the code and hold regardless of any simulation
+parameter. 203 tests cover them.
+
+**Simulated — the rupee figures.** Recoup has no access to a real merchant's
+post-failure customer behaviour, so outcomes come from `seed/world.py`. Its lift
+parameters are assumptions: plausible, conservative, and still assumptions.
+
+Three things keep that from becoming a fudge:
+
+1. **The pipeline is structurally blind to the simulator.** No module under
+   `detect/`, `agent/`, `policy/`, `execute/` or `api/` can import the world
+   model or read `data/oracle.json`. `tests/test_no_oracle_leak.py` parses the
+   AST of every pipeline file and fails the build on any path to it — including a
+   test that the detector itself detects.
+
+2. **Lift is earned by correct actions only.** Retrying a fraud decline,
+   discounting an outage, or hammering a liquidity failure five minutes early
+   earn zero lift or negative. A simulator that rewarded activity would make
+   Recoup look good for doing something stupid.
+
+3. **Results are reported as a range,** not a point estimate.
+
+The scorer's apparent calibration in the sandbox reflects internal consistency,
+not predictive validity — its priors and the simulator share a domain model.
+Against real traffic the priors would be wrong on day one, which is what
+`fit_from_outcomes()` exists to correct.
+
+---
+
+## 11. Results (seed 42, 600 events, ₹34.5L at risk)
+
+| | |
+|---|---|
+| **Incremental recovery rate** | **+7.9pp** (95% CI +0.7 … +15.2) |
+| Incremental recovered | ₹1,37,386 across 49 events |
+| Gross recovery rate | 27.8% — *what a system without a holdout would claim* |
+| Control arm recovery rate | 19.9% — *with no help at all* |
+| Cost (channel) | ₹31 |
+| Net | ₹1,37,355 |
+| Events harmed | 0 |
+| Sensitivity range | +3.0pp (pessimistic) → +10.8pp (optimistic) |
+
+**Caveats, stated rather than buried:**
+
+- At **pessimistic** assumptions the confidence interval **crosses zero**
+  (−4.1 … +10.1pp). The point estimate stays positive across the whole sweep;
+  the interval does not. Both facts belong in any honest reading.
+- **Cannibalisation is ₹0 and currently cannot be otherwise.** Incentives are
+  only ever proposed on the LLM path, and without `ANTHROPIC_API_KEY` every
+  decision falls back to the rules engine, which proposes plain nudges. That
+  metric is implemented and tested but has not been exercised end to end.
+- Roughly 70% of at-risk *value* sits in `invoice_overdue`, which is 11.7% of
+  events. Results are segmented by event kind so that tail cannot flatter the
+  headline.
+
+---
+
+## 12. A bug worth documenting
+
+The first end-to-end run reported **−1.3pp** incremental lift with an interval
+straddling zero, and every retry strategy showing exactly zero incremental
+recovery while persuasion showed all of it.
+
+That pattern is not a finding, it is a symptom.
+
+**Cause.** In dry run the Razorpay executors record `SKIPPED_DRY_RUN` while the
+outbox records `SENT`, because the outbox simulates in every mode and has nothing
+to skip. The grader treated `SENT` as "an action happened" and `SKIPPED_DRY_RUN`
+as "nothing happened" — so 134 retries and 56 Payment Links were graded as though
+Recoup had done nothing, while 172 nudges counted in full. The report was not
+measuring recovery strategy. It was measuring which executor writes an outbox
+row.
+
+**The subtle part.** The rule it enforced — *"a dry run cannot manufacture
+lift"* — sounds correct and violated its own premise. Because the outbox never
+messages a real customer in any mode, turning `RECOUP_DRY_RUN` off would have
+moved every number in the report. The flag was a dial on the results, which is
+precisely what it must not be.
+
+**Fix.** Grade dry-run dispatches identically to sent ones, and put execution
+mode in the report header where it cannot be missed. What decides an outcome is
+`world.py`, which has no opinion about whether an HTTP request left the machine.
+
+The failing test was rewritten rather than deleted — it now seeds the same event
+twice, once per transport, and asserts the outcomes are identical.
+
+---
+
+## 13. What would change for production
+
+- **Priors → fitted rates.** `fit_from_outcomes()` exists; it needs real
+  outcomes. Two weeks of live traffic replaces every number in the taxonomy.
+- **Holdout 30% → 5–10%.** The wide holdout is a small-sample necessity, not a
+  design preference.
+- **Webhooks instead of polling.** Recovery attribution currently resolves after
+  a fixed window; Razorpay's `payment.captured` and `payment_link.paid` webhooks
+  would resolve it on arrival.
+- **The outbox becomes real.** It is a deliberate stub — the messaging provider
+  is the one component with no interesting design content and real spam risk.
+- **Per-merchant bounds.** `Bounds` is a single dataclass by design; in
+  production it would be per-merchant configuration with an approval trail.
+
+---
+
+## 14. Running it
+
+```bash
+pip install -r requirements.txt
+cp .env.example .env              # rzp_test_ keys + ANTHROPIC_API_KEY
+python scripts/check_setup.py     # read-only: validates keys, db, mode
+python scripts/seed.py            # build the synthetic merchant
+python scripts/run_pipeline.py    # assess → decide → review → act
+python scripts/run_eval.py        # grade it honestly
+python scripts/serve.py           # dashboard on :8000
+pytest -q                         # 203 tests
+```
+
+Recoup refuses to start against a `rzp_live_` key. It sends messages and spends
+money; a project that should only ever run in test mode ought to make that
+structurally impossible rather than merely intended.
