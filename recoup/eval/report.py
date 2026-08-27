@@ -410,13 +410,20 @@ def _economics_table(metrics: EvalMetrics) -> Table:
     )
     t.add_section()
     t.add_row("[bold]net[/]", f"[bold]{rs(o.net_paise)}[/]", "incremental less all cost")
-    t.add_row(
-        "cost per incremental rupee",
-        f"{o.cost_per_incremental_rupee:.3f}"
-        if o.cost_per_incremental_rupee is not None
-        else "undefined",
-        "undefined, not zero, when nothing incremental was recovered",
-    )
+    # Printed in paise, not rupees-per-rupee. The ratio is tiny by design -
+    # recovery here costs a few paise of messaging per rupee returned - and at
+    # three decimal places it rendered as "0.000" directly beside a caption
+    # insisting the value was "undefined, not zero". A row whose own explainer
+    # contradicts the number it labels teaches a reader to distrust the rest.
+    if o.cost_per_incremental_rupee is None:
+        cost_ratio, cost_note = (
+            "undefined",
+            "undefined, not zero, when nothing incremental was recovered",
+        )
+    else:
+        cost_ratio = f"{o.cost_per_incremental_rupee * 100:.2f}p"
+        cost_note = "paise spent per rupee of incremental recovery"
+    t.add_row("cost per incremental rupee", cost_ratio, cost_note)
     return t
 
 
@@ -504,7 +511,16 @@ def _denials_table(metrics: EvalMetrics) -> Table:
 
 
 def _footer(metrics: EvalMetrics) -> Panel:
-    n_reason_segments = len(metrics.by_reason_code)
+    # Count every interval the report actually renders, not just the reason-code
+    # ones. The warning said "15 segments are compared here" while 25 confidence
+    # intervals were printed above it - understating the family-wise error rate
+    # in the very sentence being honest about it.
+    n_intervals = (
+        len(metrics.by_reason_code)
+        + len(metrics.by_strategy)
+        + len(metrics.by_event_kind)
+        + 1  # overall
+    )
     llm = metrics.llm
     llm_line = (
         f"{llm.llm_decisions} of {llm.decisions} decisions used the model "
@@ -520,10 +536,12 @@ def _footer(metrics: EvalMetrics) -> Panel:
         "whose lift parameters are assumptions. The sensitivity range is the honest "
         "form of the headline; the point estimate is not.\n\n"
         "[bold]Not corrected for[/] - "
-        f"{n_reason_segments} reason-code segments are compared here. At 95% "
-        "confidence roughly one in twenty looks significant by chance; no "
-        "multiple-comparison correction is applied, so no per-segment interval should "
-        "be read as a discovery.\n\n"
+        f"{n_intervals} confidence intervals are printed above - across reason "
+        "codes, strategies, event kinds and overall. At 95% confidence roughly "
+        "one in twenty looks significant by chance, so this family would be "
+        f"expected to throw up about {max(1, round(n_intervals * 0.05))} spurious "
+        "result(s); no multiple-comparison correction is applied, and no "
+        "per-segment interval should be read as a discovery.\n\n"
         f"[bold]Model use[/] - {llm_line}.",
         title="[bold]what is measured, and what is assumed[/]",
         border_style="dim",
@@ -603,7 +621,7 @@ def render(
     console.print()
     console.print(_segment_table("By strategy", metrics.by_strategy))
     console.print()
-    console.print(_segment_table("By failure reason", metrics.by_reason_code))
+    console.print(_segment_table("By reason code", metrics.by_reason_code))
     console.print()
     console.print(_segment_table("By event kind", metrics.by_event_kind))
     console.print()

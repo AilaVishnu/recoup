@@ -15,11 +15,20 @@ and moved past - it means the holdout has been contaminated and the eval is now
 fiction, and it should stop the run.
 
 **The bookkeeping happens once, in the tail.** Every handler returns an `_Effect`
-and a single block turns it into an ActionRun, a ContactLog row and a SpendLog
-row. Distributing that across six handlers is how one of them eventually forgets
-to record a channel cost, and a zero in ActionRun.channel_cost_paise is not a
-missing number - it is a claim that the message was free, which the eval will
-believe and put in the report.
+and a single block turns it into an ActionRun and a SpendLog row. Distributing
+that across six handlers is how one of them eventually forgets to record a
+channel cost, and a zero in ActionRun.channel_cost_paise is not a missing number
+- it is a claim that the message was free, which the eval will believe and put in
+the report.
+
+**The one exception is ContactLog, and the exception is the point.** The fatigue
+slot is reserved in `execute()` *before* any handler can reach the customer, and
+released afterwards only if nothing went out. Writing it in the tail with
+everything else left a window - the outbox appends to a file, outside the
+transaction - where a message was delivered and the counter was not incremented,
+irreversibly. Reserving first means a crash costs a phantom contact instead: the
+customer is under-messaged rather than silently over-messaged, which is the only
+direction this bound is allowed to fail in.
 
 **On ActionStatus.SKIPPED_DRY_RUN**: it marks a run whose *gateway* leg was
 withheld for want of credentials, not a failure and not an absence of intent.
@@ -494,6 +503,33 @@ def execute(
     incentive = _incentive_of(decision, event)
     action = decision.action_type
 
+    # Reserve the fatigue slot BEFORE anything can reach the customer.
+    #
+    # The outbox appends to a file, which is outside the SQLAlchemy transaction,
+    # so writing the ContactLog row afterwards left a window where the message
+    # was delivered and the counter was not incremented - irreversibly. A
+    # reviewer reproduced it by making the bookkeeping raise: outbox held one
+    # message, ContactLog held none, and every later contact_frequency check for
+    # that customer was computed from an undercount. db.py calls the fatigue cap
+    # "the one bound whose failure the customer feels directly", and this was how
+    # it failed.
+    #
+    # Reserving first inverts the risk: a crash now costs a phantom contact, so
+    # the customer is under-messaged rather than silently over-messaged. The
+    # reservation is released below if nothing actually went out, which preserves
+    # the original intent - a Payment Link that Razorpay refused must not burn a
+    # slot on the customer's week.
+    reservation: ContactLog | None = None
+    if action in CONTACT_ACTIONS:
+        reservation = ContactLog(
+            customer_id=event.customer_id,
+            occurred_at=now,
+            action_type=action,
+            event_id=event.id,
+        )
+        session.add(reservation)
+        session.flush()
+
     try:
         if action is ActionType.RETRY_PAYMENT:
             effect = _retry_payment(decision, event, customer, now)
@@ -522,6 +558,14 @@ def execute(
             error=str(exc),
         )
 
+    if reservation is not None and effect.message is None:
+        # Nothing reached the customer, so the slot goes back. Deleting a
+        # reservation is safe in a way that failing to create one is not: the
+        # worst case here is one extra nudge this week, against a customer being
+        # messaged an unbounded number of times in the other direction.
+        session.delete(reservation)
+        session.flush()
+
     return _record(session, decision, event, effect, now)
 
 
@@ -546,18 +590,10 @@ def _record(
     )
     session.add(run)
 
-    # Gated on membership *and* on a message having actually gone out. Membership
-    # alone would burn a slot on the customer's weekly fatigue cap for a payment
-    # link whose creation failed - punishing the customer for Razorpay's outage.
-    if decision.action_type in CONTACT_ACTIONS and effect.message is not None:
-        session.add(
-            ContactLog(
-                customer_id=event.customer_id,
-                occurred_at=now,
-                action_type=decision.action_type,
-                event_id=event.id,
-            )
-        )
+    # ContactLog is written in execute(), before the send, and released there if
+    # nothing went out. It cannot be written here: by the time this runs the
+    # message has already left, and a failure in between would lose the count
+    # while the customer keeps the message.
 
     # Only money that was actually committed. Booking spend for a link that never
     # got created would eat the daily budget on behalf of customers who were
