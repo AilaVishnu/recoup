@@ -113,6 +113,18 @@ signals settles most events deterministically. The model is called for the
 ambiguous, high-value minority — where the marginal decision quality is worth the
 latency and the cost. Knowing when *not* to call a model is part of the design.
 
+**And the model is swappable.** Any OpenAI-compatible endpoint works — OpenAI,
+Groq, Google Gemini, OpenRouter, Together, a local Ollama — alongside the
+Anthropic SDK, selected by two lines of `.env`. The policy engine never learns
+which one answered: a proposal from a frontier model and one from a free tier
+clear the same thirteen bounds, or neither does. That is tested rather than
+asserted — [`tests/test_providers.py`](tests/test_providers.py) decides the same
+event through two providers and requires identical output.
+
+This matters for a question a reviewer will ask: *what if the model is bad?*
+The answer is in code. A bad proposal is refused by the same bounds a good one
+passes, and the taxonomy answers instantly when the model is unreachable.
+
 ---
 
 ## Honesty about what is measured
@@ -186,6 +198,7 @@ tool without a holdout would have reported the first number.
   Results are segmented by event kind so that tail cannot flatter the headline.
 
 Full reasoning, design decisions and a documented bug: **[ARCHITECTURE.md](ARCHITECTURE.md)**.
+The 5-minute pitch script: **[PITCH.md](PITCH.md)**.
 
 ---
 
@@ -193,13 +206,13 @@ Full reasoning, design decisions and a documented bug: **[ARCHITECTURE.md](ARCHI
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env              # rzp_test_ keys + ANTHROPIC_API_KEY
+cp .env.example .env              # rzp_test_ keys + a model key (see below)
 python scripts/check_setup.py     # read-only: validates keys, db, mode
 python scripts/seed.py            # build the synthetic merchant
 python scripts/run_pipeline.py    # assess → decide → review → act
 python scripts/run_eval.py        # grade it honestly
 python scripts/serve.py           # dashboard on :8000
-pytest -q                         # 231 tests
+pytest -q                         # 245 tests
 ```
 
 Recoup refuses to start against a `rzp_live_` key. It sends messages and spends
@@ -223,3 +236,4 @@ structurally impossible rather than merely intended.
 | ✅ Eval harness — incremental lift, cannibalisation, sensitivity sweep | `recoup/eval/` |
 | ✅ Pipeline orchestrator — simulated time, quiet-hours deferral | `recoup/pipeline.py` |
 | ✅ Dashboard — replay any event end to end | `recoup/api/` |
+| ✅ Provider layer — any OpenAI-compatible endpoint or Anthropic | `recoup/agent/providers.py` |

@@ -197,6 +197,32 @@ records the decision as `RULES`, not `LLM`. Counting a fallback as an LLM
 decision would inflate exactly the number used to argue the model is used
 sparingly.
 
+### 6.1 The model is a component, not the architecture
+
+`providers.py` carries two adapters: the Anthropic SDK, and any
+OpenAI-compatible `/chat/completions` endpoint. The second covers OpenAI, Groq,
+Google Gemini, OpenRouter, Together, DeepSeek and a local Ollama, because they
+all speak that protocol — so switching is two lines of `.env`, not a rewrite.
+
+Structured-output support is uneven in exactly the place it matters. Full
+`json_schema` works on some endpoints, `json_object` on more, and an unsupported
+value is usually a 400 rather than a graceful degradation. The adapter
+negotiates downward: `json_schema` → `json_object` → plain text with the schema
+restated in the prompt. That only changes how often the model gets it right
+first time, never whether a bad proposal can get through — **the floor is the
+validator, not the response format.**
+
+Replies wrapped in ```` ```json ```` fences are unwrapped, because the endpoints
+without schema support are precisely the ones that fence. A fenced body that is
+not JSON is still rejected.
+
+**The policy engine never learns which provider answered.** That is the useful
+form of "the model proposes, the policy engine disposes": it means the answer to
+*what if the model is bad?* is structural rather than reassuring. The claim is
+tested — the same event decided through two providers must produce an identical
+validated proposal, and if that ever fails the model has stopped being a
+component.
+
 ---
 
 ## 7. Review — `policy/`
@@ -297,7 +323,7 @@ This section is the one to read before believing any number.
 failure reason, respects its bounds, refuses to retry risk declines, times
 liquidity retries sensibly, defers out of quiet hours, and never exceeds budget.
 These are properties of the code and hold regardless of any simulation
-parameter. 231 tests cover them, including 27 adversarial bypass attempts.
+parameter. 245 tests cover them, including 27 adversarial bypass attempts.
 
 **Simulated — the rupee figures.** Recoup has no access to a real merchant's
 post-failure customer behaviour, so outcomes come from `seed/world.py`. Its lift
@@ -433,6 +459,10 @@ with no audit trail and make the counterfactual unreadable.
   is the one component with no interesting design content and real spam risk.
 - **Per-merchant bounds.** `Bounds` is a single dataclass by design; in
   production it would be per-merchant configuration with an approval trail.
+- **The outbox becomes transactional.** The fatigue slot is reserved before the
+  send and released if nothing goes out, which closes the window that mattered;
+  a production version would move the outbox into a table so the message and its
+  ContactLog row commit together, and render the JSONL after commit.
 
 ---
 
@@ -440,13 +470,13 @@ with no audit trail and make the counterfactual unreadable.
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env              # rzp_test_ keys + ANTHROPIC_API_KEY
+cp .env.example .env              # rzp_test_ keys + a model key (any provider)
 python scripts/check_setup.py     # read-only: validates keys, db, mode
 python scripts/seed.py            # build the synthetic merchant
 python scripts/run_pipeline.py    # assess → decide → review → act
 python scripts/run_eval.py        # grade it honestly
 python scripts/serve.py           # dashboard on :8000
-pytest -q                         # 231 tests
+pytest -q                         # 245 tests
 ```
 
 Recoup refuses to start against a `rzp_live_` key. It sends messages and spends
