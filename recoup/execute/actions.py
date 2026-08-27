@@ -256,6 +256,54 @@ def _escalate(
     )
 
 
+def queue_for_human(
+    session: Session,
+    decision: Decision,
+    event: RevenueEvent,
+    customer: Customer,
+    now: datetime,
+    why: str,
+) -> ActionRun:
+    """Record a policy escalation as something a person can actually find.
+
+    Distinct from the ESCALATE_TO_HUMAN *decision* path, which goes through
+    execute() normally. This is the other route to the same place: policy
+    returning ESCALATE on an action the agent proposed in good faith - which is
+    what happens to every event above the autonomy limit, i.e. the most valuable
+    events in the system.
+
+    Until this existed those events set status AWAITING_APPROVAL and returned,
+    with no ActionRun and no queue entry anywhere. A Rs 5,00,000 receivable sat
+    unrecovered and unlisted - precisely the state _escalate's docstring warns
+    about, produced by the code path that is supposed to be the careful one.
+
+    No gateway call, no message, no cost. The deliverable is the row.
+    """
+    run = ActionRun(
+        decision_id=decision.id,
+        executed_at=now,
+        action_type=ActionType.ESCALATE_TO_HUMAN,
+        status=ActionStatus.SENT,
+        razorpay_ref=f"queue_{event.id}",
+        incentive_paise=0,
+        channel_cost_paise=0,
+        response={
+            "queue": "human_review",
+            "event_id": event.id,
+            "customer_id": customer.id,
+            "amount_paise": event.amount_paise,
+            "amount_display": f"Rs {outbox.rupees(event.amount_paise)}",
+            "reason_code": event.reason_code,
+            "queued_at": now.isoformat(timespec="seconds"),
+            "escalated_because": why,
+            "proposed_action": decision.action_type.value,
+            "rationale": decision.rationale,
+        },
+    )
+    session.add(run)
+    return run
+
+
 def _no_action(
     decision: Decision, event: RevenueEvent, customer: Customer, now: datetime
 ) -> _Effect:
@@ -348,10 +396,21 @@ def _recheck_invariants(review: Review, decision: Decision, event: RevenueEvent)
     is checkable without a database round trip, which is the whole reason it is
     affordable to check twice.
     """
-    if event.cohort is Cohort.CONTROL:
+    # Control-arm events may still reach here, but only for actions with no
+    # external effect. NO_ACTION and ESCALATE_TO_HUMAN write a row and touch
+    # nothing outside the database, which is exactly how a held-out event gets
+    # its decision recorded without being acted on - the asymmetry the whole
+    # measurement depends on. Refusing those too would mean the holdout carried
+    # no audit trail at all, and the counterfactual it exists to provide would
+    # be unreadable.
+    if event.cohort is Cohort.CONTROL and decision.action_type not in (
+        ActionType.NO_ACTION,
+        ActionType.ESCALATE_TO_HUMAN,
+    ):
         raise ExecutionRefused(
-            f"event {event.id} is in the control arm. Executing it would "
-            "contaminate the holdout and invalidate every measurement built on it."
+            f"event {event.id} is in the control arm and {decision.action_type} "
+            "would reach the customer. Executing it would contaminate the holdout "
+            "and invalidate every measurement built on it."
         )
 
     profile = profile_for(event.reason_code)
@@ -415,6 +474,14 @@ def execute(
         raise ExecutionRefused(
             f"event {event.id} belongs to customer {event.customer_id}, "
             f"not {customer.id}"
+        )
+
+    if "delay_hours" in (decision.params or {}):
+        raise ExecutionRefused(
+            f"decision {decision.id} still carries delay_hours - the scheduler "
+            "must apply a requested wait before review, so the action fires at "
+            "the instant the bounds were evaluated against. Executing here would "
+            "put it outside the window it was authorised in."
         )
 
     _verify_review_provenance(review, decision, event, customer, now)

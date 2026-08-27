@@ -280,6 +280,16 @@ class PolicyReview(Base):
 
     violations: Mapped[list[str]] = mapped_column(JSON, default=list)
 
+    bounds: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    """The limits actually in force for this review, snapshotted.
+
+    A Check records its verdict and never the threshold behind it, so a row
+    could say "within autonomy limit" while giving no way to learn what the
+    limit was. Replaying a decision months later then depends on the bounds
+    never having changed, which is exactly the assumption an audit trail exists
+    to avoid making.
+    """
+
     decision: Mapped[Decision] = relationship(back_populates="review")
 
 

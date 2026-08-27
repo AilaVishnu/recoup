@@ -235,7 +235,7 @@ def test_control_arm_is_never_executed(session):
 def test_control_arm_decision_is_still_fully_recorded(session):
     """Suppression happens at execution, not at reasoning - that is the point."""
     r = review(ctx(cohort=Cohort.CONTROL), session)
-    assert len(r.checks) == 13
+    assert len(r.checks) == 14  # 13 bounds + the input-validation gate
 
 
 # --- the engine's own contract --------------------------------------------
@@ -253,7 +253,7 @@ def test_every_rule_runs_even_after_a_failure(session):
         ),
         session,
     )
-    assert len(r.checks) == 13
+    assert len(r.checks) == 14  # 13 bounds + the input-validation gate
     assert len(r.violations) >= 4
 
 

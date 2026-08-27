@@ -53,7 +53,7 @@ from recoup.db import (
 )
 from recoup.detect.features import IST_OFFSET, is_quiet_hours, to_ist
 from recoup.detect.scorer import assess, fit_from_outcomes
-from recoup.execute.actions import execute
+from recoup.execute.actions import execute, queue_for_human
 from recoup.policy.rules import CONTACT_ACTIONS, Bounds, ReviewContext, review
 
 
@@ -92,12 +92,31 @@ def next_business_hour(dt: datetime) -> datetime:
 
 
 def _attempts_so_far(session: Session, event_id: str) -> int:
-    """Executed actions already made against this event.
+    """Every attempt this order has already absorbed - not only Recoup's.
 
-    Counted from ActionRun rather than a column on the event, so the number
-    cannot drift from what actually happened.
+    Recoup's own runs are counted from ActionRun rather than a column, so that
+    number cannot drift from what actually happened. But counting *only* those
+    made the attempt cap structurally inert: run() processes each event exactly
+    once and leaves it non-OPEN, so the count was always zero and
+    _rule_attempt_cap could never deny anything. One of the thirteen advertised
+    bounds was documentation, and the dashboard would show it as "zero denials",
+    which reads as "nothing ever hit the cap" rather than "the cap cannot fire".
+
+    The ceiling belongs to the order. A card_expired failure on its fourth
+    attempt has exhausted a taxonomy ceiling of one whether the earlier attempts
+    came from Recoup or from the customer hammering checkout, and the reason the
+    ceiling exists - each further attempt is less likely to work and more likely
+    to annoy - does not care which.
     """
-    return (
+    # attempt_no is read from the row rather than accepted as an argument, so
+    # there is no way to call this and get the old, inert answer.
+    attempt_no = (
+        session.scalar(
+            select(RevenueEvent.attempt_no).where(RevenueEvent.id == event_id)
+        )
+        or 1
+    )
+    ours = (
         session.scalar(
             select(func.count())
             .select_from(ActionRun)
@@ -106,6 +125,7 @@ def _attempts_so_far(session: Session, event_id: str) -> int:
         )
         or 0
     )
+    return max(attempt_no - 1, 0) + ours
 
 
 def process_event(
@@ -138,21 +158,45 @@ def process_event(
     else:
         stats.rules_decisions += 1
 
-    # --- 3. schedule around quiet hours ------------------------------------
-    action_time = decision_time
+    # --- 3. schedule: honour the requested delay, then dodge quiet hours ----
+    #
+    # delay_hours was previously written by both decision paths, validated,
+    # persisted - and read by nothing, so a deliberate deferral was silently
+    # discarded and the audit trail recorded a wait that never happened.
+    #
+    # It is applied here rather than in execute() on purpose. The executor is
+    # downstream of review, so a delay applied there would fire the action at an
+    # instant no bound was evaluated against - handing the model a field it can
+    # set to move its own execution outside the window it was authorised in.
+    # Applying it before review means the delayed instant is the reviewed one.
+    requested_delay = float((decision.params or {}).get("delay_hours", 0) or 0)
+    requested_delay = max(0.0, min(requested_delay, 168.0))
+    action_time = decision_time + timedelta(hours=requested_delay)
+
     if decision.action_type in CONTACT_ACTIONS:
-        action_time = next_business_hour(decision_time)
-        if action_time != decision_time:
+        deferred = next_business_hour(action_time)
+        if deferred != action_time:
             stats.deferred_for_quiet_hours += 1
+            action_time = deferred
             # Recorded on the decision so the dashboard can show the deferral.
             # A run where nothing was ever deferred would mean the scheduler is
             # not doing its job, and that should be visible rather than assumed.
             decision.params = {
                 **(decision.params or {}),
-                "deferred_from": decision_time.isoformat(),
+                "deferred_from": (decision_time + timedelta(hours=requested_delay)).isoformat(),
                 "deferred_to": action_time.isoformat(),
                 "deferred_reason": "quiet hours 21:00-08:00 IST",
             }
+
+    # The field is consumed, not left lying around: execute() refuses any
+    # decision still carrying delay_hours, which makes "the scheduler applied it"
+    # a checkable invariant rather than a convention.
+    if requested_delay or "delay_hours" in (decision.params or {}):
+        params = dict(decision.params or {})
+        params.pop("delay_hours", None)
+        params["delay_applied_hours"] = requested_delay
+        params["scheduled_for"] = action_time.isoformat()
+        decision.params = params
 
     # --- 4. review ---------------------------------------------------------
     ctx = ReviewContext(
@@ -178,6 +222,7 @@ def process_event(
             verdict=result.verdict,
             checks=[c.as_dict() for c in result.checks],
             violations=result.violations,
+            bounds=result.bounds,
         )
     )
     session.flush()
@@ -200,6 +245,20 @@ def process_event(
     if result.verdict is PolicyVerdict.ESCALATE:
         event.status = EventStatus.AWAITING_APPROVAL
         stats.escalated += 1
+        # Escalation has to produce something, or it is just a status nobody
+        # reads. These are by definition the highest-value events in the system.
+        queue_for_human(
+            session,
+            decision,
+            event,
+            customer,
+            action_time,
+            why="; ".join(
+                c.detail for c in result.checks
+                if not c.passed and c.verdict is PolicyVerdict.ESCALATE
+            )
+            or "policy escalation",
+        )
         return
 
     event.status = EventStatus.SUPPRESSED

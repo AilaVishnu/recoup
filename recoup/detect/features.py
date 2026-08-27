@@ -10,7 +10,7 @@ assignment, or anything the simulator knows - see tests/test_no_oracle_leak.py.
 
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 from typing import Any
 
 from recoup.db import Customer, RevenueEvent
@@ -25,6 +25,21 @@ payment reminder at 9am and one at 3:30am.
 
 
 def to_ist(dt: datetime) -> datetime:
+    """Convert to IST wall-clock time, accepting naive-UTC or aware input.
+
+    The naive-UTC contract is documentation, and documentation does not stop a
+    correctly-formed aware timestamp arriving from a webhook, a JSON replay, or
+    db.utcnow() - which returns aware values while every column stores naive.
+    Blindly adding the offset shifts such a value twice: 03:00 IST becomes
+    08:30 IST and reports as business hours, and the whole 02:30-08:00 band
+    stops counting as quiet while 15:30-20:59 falsely starts.
+
+    That would break the enforcing rule and the deferring scheduler in the same
+    direction at the same time, which is precisely the case where one is meant
+    to catch the other.
+    """
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
     return dt + IST_OFFSET
 
 

@@ -27,7 +27,7 @@ Two properties every rule here holds to:
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
@@ -91,59 +91,65 @@ class Bounds:
     """Set to tighten the per-reason attempt ceilings globally. None = trust the
     taxonomy."""
 
-    def assert_not_looser_than_default(self) -> None:
-        """Refuse any override that widens a limit. Tightening is allowed.
+    def clamped_to_default(self) -> "Bounds":
+        """Return these bounds, field-wise no looser than the defaults.
 
-        Without this, `bounds` is a caller-supplied argument that turns the
-        policy engine off. A reviewer demonstrated it: passing
+        `bounds` is a caller-supplied argument, and until this existed it was a
+        switch that turned the policy engine off: passing
         Bounds(human_approval_above_paise=10**14) put a Rs 5,00,000 event through
-        to execution with no human involved - twenty times the autonomy limit -
-        and the stored audit row recorded high_value_needs_human as *passed*,
-        "within autonomy limit", because the check reports its verdict and not
-        the threshold it used.
+        to execution with no human - twenty times the autonomy limit - while the
+        stored audit row recorded high_value_needs_human as *passed*, "within
+        autonomy limit", because a check reports its verdict and never the
+        threshold behind it.
 
-        A bound that the caller can widen is not a bound, and one that widens
-        without leaving a trace is worse than not having it. So overrides may
-        only ever move in the safe direction, and the direction differs per
-        field: a smaller contact cap is stricter, a larger EV floor is stricter.
+        Clamping rather than raising is deliberate. A raise would be louder, and
+        would also end the run for every remaining event over one bad call from
+        one caller; and the safe fallback here is unambiguous, because a bound
+        that is too strict costs a little recovery while one that is too loose
+        costs money and customer trust. Tightening still works, so a cautious
+        caller keeps its say.
+
+        The safe direction differs per field, which is the whole reason this is
+        explicit rather than a min() over a loop: a smaller contact cap is
+        stricter, a larger expected-value floor is stricter.
         """
         d = DEFAULT_BOUNDS
-        looser: list[str] = []
-
-        # Smaller is stricter - a lower ceiling permits less.
-        for field_name in (
-            "max_contacts_per_customer_per_week",
-            "max_incentive_fraction",
-            "max_incentive_paise",
-            "daily_incentive_budget_paise",
-            "human_approval_above_paise",
-        ):
-            if getattr(self, field_name) > getattr(d, field_name):
-                looser.append(
-                    f"{field_name}={getattr(self, field_name)} exceeds the "
-                    f"default {getattr(d, field_name)}"
+        return replace(
+            self,
+            # Smaller permits less.
+            max_contacts_per_customer_per_week=min(
+                self.max_contacts_per_customer_per_week,
+                d.max_contacts_per_customer_per_week,
+            ),
+            max_incentive_fraction=min(
+                self.max_incentive_fraction, d.max_incentive_fraction
+            ),
+            max_incentive_paise=min(self.max_incentive_paise, d.max_incentive_paise),
+            daily_incentive_budget_paise=min(
+                self.daily_incentive_budget_paise, d.daily_incentive_budget_paise
+            ),
+            human_approval_above_paise=min(
+                self.human_approval_above_paise, d.human_approval_above_paise
+            ),
+            # Larger permits less.
+            min_expected_value_paise=max(
+                self.min_expected_value_paise, d.min_expected_value_paise
+            ),
+            min_incremental_ev_ratio=max(
+                self.min_incremental_ev_ratio, d.min_incremental_ev_ratio
+            ),
+            # None means "no override", which is looser than any ceiling.
+            max_attempts_override=(
+                d.max_attempts_override
+                if self.max_attempts_override is None
+                else min(
+                    self.max_attempts_override,
+                    d.max_attempts_override
+                    if d.max_attempts_override is not None
+                    else self.max_attempts_override,
                 )
-
-        # Larger is stricter - a higher floor permits less.
-        for field_name in ("min_expected_value_paise", "min_incremental_ev_ratio"):
-            if getattr(self, field_name) < getattr(d, field_name):
-                looser.append(
-                    f"{field_name}={getattr(self, field_name)} is below the "
-                    f"default {getattr(d, field_name)}"
-                )
-
-        # None means "no override", which is looser than any ceiling.
-        if self.max_attempts_override is not None and (
-            d.max_attempts_override is not None
-            and self.max_attempts_override > d.max_attempts_override
-        ):
-            looser.append("max_attempts_override exceeds the default")
-
-        if looser:
-            raise ValueError(
-                "Bounds override would loosen policy, which is never permitted: "
-                + "; ".join(looser)
-            )
+            ),
+        )
 
 
 DEFAULT_BOUNDS = Bounds()
@@ -209,13 +215,36 @@ class ReviewContext:
     now: datetime
     bounds: Bounds = DEFAULT_BOUNDS
 
+    validation_errors: list[str] = field(default_factory=list)
+    """Problems found while normalising. Denied by rule, never raised.
+
+    Raising here would be the obvious move and is wrong: construction happens
+    before any row is written, so a raise leaves the event with no PolicyReview
+    at all - no denial, no record, just a traceback. An unevaluable event is
+    exactly the case where the audit trail earns its keep.
+    """
+
     def __post_init__(self) -> None:
-        # Coerce enums rather than trusting the caller's spelling. Cohort and
-        # ActionType are str-enums, so a plain string compares equal but is not
-        # identical - and one rule in this file used to test identity, which
-        # silently classified a held-out event as treatment.
-        self.cohort = Cohort(self.cohort)
-        self.action_type = ActionType(self.action_type)
+        """Normalise to something every rule can evaluate. Never raise.
+
+        Bad values are replaced with inert ones and recorded, so the full set of
+        thirteen checks still runs and still produces a reviewable record, with
+        _rule_context_is_evaluable supplying the deny.
+        """
+        self.bounds = self.bounds.clamped_to_default()
+
+        # Coerce enums rather than trusting the caller's spelling. These are
+        # str-enums, so a plain string compares equal but is not identical - and
+        # one rule in this file used to test identity, which silently classified
+        # a held-out event as treatment.
+        try:
+            self.cohort = Cohort(self.cohort)
+        except (ValueError, KeyError):
+            self.validation_errors.append(f"unrecognised cohort {self.cohort!r}")
+        try:
+            self.action_type = ActionType(self.action_type)
+        except (ValueError, KeyError):
+            self.validation_errors.append(f"unrecognised action_type {self.action_type!r}")
 
         for name in (
             "amount_paise",
@@ -224,19 +253,34 @@ class ReviewContext:
             "incentive_paise",
         ):
             value = getattr(self, name)
-            if value is None or not isinstance(value, (int, float)):
-                raise ValueError(f"{name} must be numeric, got {value!r}")
-            setattr(self, name, int(value))
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                self.validation_errors.append(f"{name} is not numeric ({value!r})")
+                setattr(self, name, 0)
+            else:
+                setattr(self, name, int(value))
 
-        if self.recoverability is None or not isinstance(
+        if isinstance(self.recoverability, bool) or not isinstance(
             self.recoverability, (int, float)
         ):
-            raise ValueError(f"recoverability must be numeric, got {self.recoverability!r}")
+            self.validation_errors.append(
+                f"recoverability is not numeric ({self.recoverability!r})"
+            )
+            self.recoverability = 0.0
 
-        self.now = _naive_utc(self.now, "now")
-        self.earliest_action_at = _naive_utc(self.earliest_action_at, "earliest_action_at")
-
-        self.bounds.assert_not_looser_than_default()
+        for name in ("now", "earliest_action_at"):
+            value = getattr(self, name)
+            if not isinstance(value, datetime):
+                self.validation_errors.append(f"{name} is not a datetime ({value!r})")
+                setattr(self, name, datetime.min)
+            elif value.tzinfo is not None:
+                # db.utcnow() returns an aware datetime while every DateTime
+                # column stores naive, so an aware value here used to raise
+                # "can't compare offset-naive and offset-aware datetimes" out of
+                # the timing rule. Converting at the boundary makes the mismatch
+                # impossible rather than merely unlikely.
+                setattr(
+                    self, name, value.astimezone(timezone.utc).replace(tzinfo=None)
+                )
 
 
 @dataclass
@@ -302,6 +346,23 @@ def _rule_never_retry_risk_declines(ctx: ReviewContext, session: Session) -> Che
     return Check(
         "never_retry_risk_declines", True, PolicyVerdict.ALLOW, "not a do-not-retry reason"
     )
+
+
+def _rule_context_is_evaluable(ctx: ReviewContext, session: Session) -> Check:
+    """Deny anything the context could not be normalised into.
+
+    The inert values substituted in __post_init__ keep the other twelve rules
+    evaluable, which is what makes a complete record possible - but they are not
+    the caller's data, so nothing may be approved on the strength of them.
+    """
+    if ctx.validation_errors:
+        return Check(
+            "context_is_evaluable",
+            False,
+            PolicyVerdict.DENY,
+            "; ".join(ctx.validation_errors) + " - failing closed",
+        )
+    return Check("context_is_evaluable", True, PolicyVerdict.ALLOW, "inputs well-formed")
 
 
 def _rule_unknown_reason_fails_closed(ctx: ReviewContext, session: Session) -> Check:
@@ -553,6 +614,7 @@ def _rule_control_arm_is_never_executed(ctx: ReviewContext, session: Session) ->
 
 
 RULES: list[Callable[[ReviewContext, Session], Check]] = [
+    _rule_context_is_evaluable,
     _rule_unknown_reason_fails_closed,
     _rule_never_retry_risk_declines,
     _rule_attempt_cap,
