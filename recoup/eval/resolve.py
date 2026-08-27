@@ -351,13 +351,30 @@ def executed_actions(session: Session) -> tuple[dict[str, ExecutedAction], dict[
     chosen: dict[str, ExecutedAction] = {}
 
     for event_id, run in rows:
-        if run.status is ActionStatus.SKIPPED_DRY_RUN:
-            counters["dry_run_actions"] += 1
-            continue
         if run.status is ActionStatus.FAILED:
             counters["failed_actions"] += 1
             continue
-        if run.status is not ActionStatus.SENT:
+
+        if run.status is ActionStatus.SKIPPED_DRY_RUN:
+            # Dispatched in simulation rather than over the wire - and graded
+            # anyway, deliberately.
+            #
+            # The tempting rule is "a dry run cannot manufacture lift", but it
+            # does not survive contact with the rest of the system. The outbox
+            # never messages a real customer in ANY mode, so nudges would always
+            # earn credit while Payment Links would earn it only when
+            # RECOUP_DRY_RUN=false. Two actions, both simulated, graded
+            # differently - and the resulting report would not be measuring
+            # recovery strategy at all, only which executor happens to write an
+            # outbox row.
+            #
+            # What actually decides an outcome here is recoup/seed/world.py, and
+            # it has no opinion about whether an HTTP call left the machine. So
+            # the honest line is not to exclude these, it is to grade them and
+            # say plainly which mode produced the number - which the report does,
+            # in its header, every time.
+            counters["dry_run_actions"] += 1
+        elif run.status is not ActionStatus.SENT:
             counters["pending_actions"] += 1
             continue
         if run.action_type not in ACTING_TYPES:

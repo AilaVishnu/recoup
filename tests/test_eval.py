@@ -289,9 +289,24 @@ def test_the_baseline_does_not_move_when_the_assumptions_do(session):
 # --- what does not count as an intervention --------------------------------
 
 
-def test_a_dry_run_cannot_manufacture_lift(session):
-    """RECOUP_DRY_RUN must not be a switch that improves the results."""
+def test_dry_run_is_not_a_switch_that_moves_the_numbers(session):
+    """RECOUP_DRY_RUN must not change a result. It is a transport flag, not a dial.
+
+    The earlier version of this rule excluded dry-run actions from grading, on
+    the reasoning that a simulated dispatch has not earned any credit. It sounds
+    right and it was not, for a reason the flag itself exposes: the outbox never
+    messages a real customer in ANY mode, so nudges were graded always while
+    Payment Links were graded only with the flag off. Turning dry-run off would
+    therefore have moved every number in the report - which is precisely what
+    this test's name forbids.
+
+    Grading both identically is the stronger guarantee. What produces an outcome
+    is recoup/seed/world.py, which has no opinion about whether an HTTP request
+    left the machine, so the flag genuinely cannot reach the result. The mode is
+    disclosed in the report header instead of being smuggled into the maths.
+    """
     oracle: dict = {}
+    # Identical events, identical luck, identical action. Only the transport differs.
     seed_event(
         session,
         oracle,
@@ -300,12 +315,49 @@ def test_a_dry_run_cannot_manufacture_lift(session):
         action_type=ActionType.RETRY_PAYMENT,
         status=ActionStatus.SKIPPED_DRY_RUN,
     )
+    seed_event(
+        session,
+        oracle,
+        eid="evt_live",
+        roll=0.40,
+        action_type=ActionType.RETRY_PAYMENT,
+        status=ActionStatus.SENT,
+    )
+
+    resolution = resolve_all(session, oracle=oracle, persist=False)
+    by_id = {o.event_id: o for o in resolution.outcomes}
+    dry, live = by_id["evt_dry"], by_id["evt_live"]
+
+    assert dry.treated == live.treated
+    assert dry.recovered == live.recovered
+    assert dry.attribution == live.attribution
+    assert dry.recovered_paise == live.recovered_paise
+
+    # Still counted, so the header can say which mode produced the number.
+    assert resolution.integrity["dry_run_actions"] == 1
+
+
+def test_a_dry_run_action_is_graded_not_discarded(session):
+    """The specific regression: 190 of 384 real actions once vanished from the eval.
+
+    A full pipeline run in dry mode dispatched 134 retries and 56 Payment Links
+    that the grader dropped on the floor, while 172 nudges counted. Every retry
+    strategy consequently reported zero incremental recovery, and the report read
+    as though only persuasion worked.
+    """
+    oracle: dict = {}
+    seed_event(
+        session,
+        oracle,
+        eid="evt_dry_graded",
+        roll=0.40,
+        action_type=ActionType.RETRY_PAYMENT,
+        status=ActionStatus.SKIPPED_DRY_RUN,
+    )
     resolution = resolve_all(session, oracle=oracle, persist=False)
     (outcome,) = resolution.outcomes
 
-    assert not outcome.treated
-    assert not outcome.recovered
-    assert resolution.integrity["dry_run_actions"] == 1
+    assert outcome.treated, "a dry-run action must still be graded as an action"
 
 
 def test_a_failed_send_earns_nothing(session):

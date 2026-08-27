@@ -266,8 +266,8 @@ def _no_actions_notice(metrics: EvalMetrics) -> Panel | None:
     i = metrics.integrity
     skipped = i.get("dry_run_actions", 0)
     detail = (
-        f"{skipped} action(s) were recorded but skipped in dry-run mode and earn no "
-        "credit - a dry run cannot manufacture lift."
+        f"{skipped} action(s) were dispatched in dry-run mode. They are graded, "
+        "but no Razorpay call left the machine - see the mode line in the header."
         if skipped
         else "No action has been executed against any event yet."
     )
@@ -540,6 +540,29 @@ def render(
     console.rule(
         f"[bold]Recoup evaluation[/]  seed {metrics.seed}  |  {metrics.n_events} events "
         f"|  {rs_coarse(o.value_at_risk_paise)} at risk"
+    )
+
+    # Execution mode belongs in the header, not a footnote. Dry-run actions are
+    # graded (see recoup/eval/resolve.py on why), so a reader who misses this
+    # line would take a simulated dispatch for a live one. Every figure below
+    # inherits whichever mode is printed here.
+    dry = metrics.integrity.get("dry_run_actions", 0)
+    live = max(0, o.treated_n - dry)
+    if dry and live:
+        mode = (
+            f"[yellow]mixed execution[/] - {live} action(s) sent to Razorpay, "
+            f"{dry} dispatched in dry run"
+        )
+    elif dry:
+        mode = (
+            f"[yellow]dry run[/] - all {dry} action(s) simulated, no Razorpay call "
+            "left the machine"
+        )
+    else:
+        mode = f"[green]live test mode[/] - {live} action(s) sent to Razorpay"
+    console.print(f"  {mode}")
+    console.print(
+        "  [dim]outcomes are simulated in every mode - see recoup/seed/world.py[/]"
     )
     console.print()
 
