@@ -546,8 +546,12 @@ def test_overview_reads_the_eval_report_by_key_not_by_path(client, monkeypatch, 
     assert "Rupee figures are assumption output." in body
     assert "sensitivity sweep" in body
     assert "pessimistic" in body and "optimistic" in body
-    # The pessimistic interval spans zero and has to say so.
-    assert "-10.0% to 3.0% *" in body
+    # The pessimistic interval spans zero and has to say so - in percentage
+    # points, which is what a difference between two recovery rates is. The
+    # sweep used to print these with a % sign, and this assertion pinned the
+    # wrong unit in place: "27.4% gross against a 7.5% lift" invites arithmetic
+    # that does not hold, on the one table a sceptical reader studies hardest.
+    assert "-10.0pp to +3.0pp *" in body
 
 
 def test_a_corrupt_report_is_ignored_rather_than_fatal(client, monkeypatch, tmp_path):

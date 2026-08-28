@@ -3,6 +3,92 @@
 
 {% block content %}
 
+{#
+  Page-scoped CSS. This page is two tables and both need something the shared
+  components deliberately do not give every table: the first carries a column
+  of real prose that has to be read rather than skimmed, and the second has to
+  separate a bound that fires constantly from one that has never fired at all.
+#}
+<style>
+/* --- the limits ----------------------------------------------------------
+ * The justification column is the argument of this page. Anywhere else on the
+ * dashboard a td.detail is a third-rank annotation and 14px muted is right;
+ * here it is the evidence that these numbers were reasoned about rather than
+ * picked, so it gets prose treatment - a step up in size, ink instead of grey,
+ * and a measure it is actually possible to read a paragraph at.
+ */
+.bounds td.detail {
+  font-size: var(--fs-md);
+  color: var(--ink-2);
+  line-height: 1.6;
+}
+/* The cap lives on a block inside the cell, not on the cell. A table column
+ * stretches to whatever width is going spare; at full page width this one
+ * would run to about 120 characters a line, which is roughly twice the point
+ * at which the eye stops finding the start of the next one. */
+.bounds td.detail p { margin: 0; max-width: var(--measure); }
+
+/* Shrink-to-content: width 1% plus nowrap is how a table column is told to
+ * take exactly what its content needs. Everything left over goes to the
+ * justification, which is the only column here that can spend it. */
+.bounds td.name, .bounds th.name,
+.bounds td.val, .bounds th.val { width: 1%; white-space: nowrap; }
+/* Extra vertical air. Every row here is a paragraph, and at the shared 12px
+ * two justifications a line and a half apart start reading as one. */
+.bounds td { padding: var(--s-4) var(--s-3); }
+/* "no override" and "enforced" are states, not quantities. Printed in the same
+ * weight as Rs 25,000 they read as figures that failed to render. */
+.bounds td.val .state { font-family: var(--sans); font-weight: 400; color: var(--muted); }
+
+/* --- which bounds bind ---------------------------------------------------
+ * The distinction this table exists to draw is "fires constantly" against
+ * "has never fired once", and a column of percentages does not draw it: a rate
+ * of 0.3% and a rate of 0.0% differ by one digit on the page and by everything
+ * in meaning. The bar draws it. A rule that has ever fired always shows a
+ * mark, however short; a rule that never has shows nothing at all, so the
+ * empty rows are findable in one pass down the column without reading a single
+ * number.
+ *
+ * Narrower than the shared 20%, which is sized for the three-column table on
+ * the overview; at seven columns that would hand a quarter of the table to a
+ * decoration.
+ */
+.rules td.bar { width: 120px; min-width: 120px; }
+.rules td.bar span { min-width: 0; }
+.rules tr.binds td.bar span { min-width: 4px; }
+/* Hue follows the verdict the rule actually returns, so the column separates
+ * the bounds that refuse outright from the one that hands the decision to a
+ * person. Red here is a policy refusal, which is the only thing red is ever
+ * allowed to mean on this dashboard, and the pill beside it says the same word
+ * for anyone the hue does not reach. */
+.rules td.bar span.deny { background: var(--fail); }
+.rules td.bar span.escalate { background: var(--amber); }
+
+/* A rail on the rows that fired. The bold name is the shared treatment and it
+ * is a weight difference at 14px, which survives a monitor and does not
+ * survive a projector at the back of a hall. Accent and not red, because the
+ * rows that fired do not share a verdict - most deny, one hands the decision
+ * to a person - and one red rail down all of them would report a refusal that
+ * some of them never made. */
+.rules tr.binds td:first-child { box-shadow: inset 3px 0 0 var(--accent-edge); }
+
+/* The overview links straight to a rule row - /policy#control_arm_suppression.
+ * Without this the sticky header lands on top of the row that was asked for,
+ * which looks exactly like a broken anchor to anyone watching. */
+.rules tr[id] { scroll-margin-top: var(--s-8); }
+
+/* The blocked cell now holds a count and a word, so it is no longer a bare
+ * figure that can be right-aligned against the columns beside it - a ragged
+ * left edge on pills of two different lengths reads as a broken column. Pushed
+ * to the right edge as a block instead, so the pills still stack flush against
+ * the numbers they belong with. */
+.rules td.blocked { text-align: right; white-space: nowrap; }
+
+.rules td a:hover { text-decoration: none; }
+.rules td a:hover .pill { border-color: currentColor; }
+.rules .never { color: var(--muted); font-size: var(--fs-sm); }
+</style>
+
 <h1>The bounds</h1>
 <p class="lede">
   The model proposes; this engine disposes. Everything below runs <i>after</i>
@@ -13,18 +99,24 @@
 </p>
 
 <section class="panel">
-  <h2>Limits, as applied by the last run</h2>
+  <div class="head">
+    <h2>Limits, as applied by the last run</h2>
+    <p class="head-sub">
+      The tunable numbers. Each one is a value some check below compares against.
+    </p>
+    <span class="head-aside">{{ bounds|length }} limits</span>
+  </div>
   <table class="grid bounds">
-    <thead><tr><th>bound</th><th class="n">value</th><th>why</th></tr></thead>
+    <thead><tr><th class="name">bound</th><th class="n val">value</th><th>why</th></tr></thead>
     <tbody>
       {% for b in bounds %}
       <tr>
-        <td class="mono">{{ b.name }}</td>
-        <td class="n strong">
+        <td class="mono name">{{ b.name }}</td>
+        <td class="n strong val">
           {%- if b.value is none -%}
-            no override
+            <span class="state">no override</span>
           {%- elif b.value is boolean -%}
-            {{ "enforced" if b.value else "off" }}
+            <span class="state">{{ "enforced" if b.value else "off" }}</span>
           {%- elif b.name.endswith("_paise") -%}
             {{ b.value|rupees }}
           {%- elif b.name.endswith("_fraction") -%}
@@ -35,7 +127,7 @@
             {{ b.value }}
           {%- endif -%}
         </td>
-        <td class="detail">{{ b.why }}</td>
+        <td class="detail"><p>{{ b.why }}</p></td>
       </tr>
       {% endfor %}
     </tbody>
@@ -51,20 +143,32 @@
 </section>
 
 <section class="panel">
-  <h2>Which bounds actually bind</h2>
+  {% set fired = rules|selectattr("failed")|list %}
+  <div class="head">
+    <h2>Which bounds actually bind</h2>
+    {% if rules %}
+    <p class="head-sub">
+      {{ fired|length }} of the {{ rules|length }} checks have ever refused an
+      action. The other {{ rules|length - fired|length }} run on every decision
+      anyway &mdash; that is what makes a pass mean anything.
+    </p>
+    <span class="head-aside">{{ rules|map(attribute="evaluated")|max }} reviews</span>
+    {% endif %}
+  </div>
   {% if not rules %}
     {% set empty_title = "No reviews recorded" %}
     {% set empty_hint = "The bounds above are declared but nothing has been put through them yet." %}
     {% set empty_command = "python scripts/seed.py" %}
     {% include "_empty.html" %}
   {% else %}
+  <div class="scroll">
   <table class="grid rules">
     <thead>
       <tr>
         <th>rule</th>
         <th class="n">evaluated</th>
         <th class="n">blocked</th>
-        <th class="n">rate</th>
+        <th colspan="2">block rate</th>
         <th class="n">exposure</th>
         <th>what it said</th>
       </tr>
@@ -74,22 +178,56 @@
       <tr id="{{ rule.name }}" class="{{ 'binds' if rule.failed else '' }}">
         <td class="mono name">{{ rule.name }}</td>
         <td class="n dim">{{ rule.evaluated }}</td>
-        <td class="n">
+        <td class="n blocked">
           {% if rule.failed %}
-            <a href="/events?verdict={{ rule.verdict }}"><span class="pill v-{{ rule.verdict }}">{{ rule.failed }}</span></a>
+            {#
+              The link narrows the event list to this rule's verdict, not to
+              this rule: /events filters on the verdict a decision ended with,
+              and several bounds share one. The title says so rather than
+              letting a viewer infer a filter that is not there.
+            #}
+            {#
+              The count carries its verdict word. Deny and escalate are the one
+              distinction this column exists to draw - a bound that refused an
+              action against a bound that handed it to a person - and the pill
+              was drawing it in red against amber and nothing else. Red-green
+              blindness is the common one, but this pair fails for anyone
+              watching a re-encoded recording on a phone too, and "13" tells
+              them nothing either way. Word, then glyph, then hue, which is the
+              order of reliability every other verdict on this site follows.
+            #}
+            <a href="/events?verdict={{ rule.verdict }}"
+               title="every {{ rule.verdict }} verdict, not only the ones {{ rule.name }} caused">
+              <span class="pill v-{{ rule.verdict }}">{{ rule.failed }} {{ rule.verdict }}</span>
+            </a>
           {% else %}
             <span class="dim">0</span>
           {% endif %}
         </td>
+        <td class="bar">
+          <span class="{{ rule.verdict if rule.failed else '' }}"
+                style="width: {{ (100 * rule.failure_rate)|round(1) }}%"></span>
+        </td>
         <td class="n dim">{{ rule.failure_rate|pct }}</td>
-        <td class="n">{{ rule.exposure_paise|rupees if rule.failed else "" }}</td>
+        <td class="n">{{ rule.exposure_paise|rupees if rule.failed else "—" }}</td>
         <td class="detail">
-          {% for example in rule.examples %}<div class="example">{{ example }}</div>{% endfor %}
+          {% if rule.examples %}
+            {% for example in rule.examples %}<div class="example">{{ example }}</div>{% endfor %}
+          {% elif rule.evaluated %}
+            {#
+              An empty cell here would read as missing data. It is not: the rule
+              ran and had no objection, and that is the whole finding.
+            #}
+            <span class="never">never fired</span>
+          {% else %}
+            <span class="never">not evaluated yet</span>
+          {% endif %}
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
   <p class="note">
     Exposure is per-rule, not a partition: when three bounds object to the same
     action, that event's value appears under all three. The column answers

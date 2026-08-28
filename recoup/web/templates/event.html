@@ -3,6 +3,108 @@
 
 {% block content %}
 
+{#
+  Six page-scoped ideas, and no more. Everything else on this page is app.css
+  vocabulary. Each of these is true of the replay and of nothing else on the
+  site, so pushing them into the shared sheet would be adding words that only
+  one template can ever say.
+#}
+<style>
+/* The holdout hero borrows .headline, and .headline is accent blue - the
+   colour this dashboard gives the treatment arm. On the one page whose whole
+   argument is that this event was NOT treated, a blue band would label the
+   counterfactual with the treated arm's colour and quietly undo the point.
+   Retinted violet so the banner, the spine running down the timeline and the
+   cohort pill are all saying the same thing before a word is read. */
+.headline.holdout-hero {
+  border-color: var(--violet-edge);
+  background: linear-gradient(160deg, var(--violet-wash), var(--panel));
+}
+.headline.holdout-hero .headline-k { color: var(--violet); }
+/* The punchline of the comparison. "nothing" is the quantity the incremental
+   number on the overview is measured against, so it is the one value in this
+   band allowed to carry the arm's colour. */
+.headline.holdout-hero .headline-compare dd.nil { color: var(--violet); }
+
+/* Fourteen bounds arrive as fourteen rows of near-identical prose, and a viewer
+   scanning at video speed has nowhere to rest. They are not fourteen unrelated
+   tests though: in the order the engine runs them they fall into six questions,
+   each asked by two to four rules. The band rows name those questions. It is a
+   reading aid and nothing more - the engine holds one flat list, and the note
+   under the table says so rather than letting the layout imply an architecture
+   that does not exist.
+
+   Set at 11px muted these headings were the faintest text in the most important
+   table on the site: a reading aid nobody at the back of a room could read is
+   not a reading aid. Uppercase and letterspaced already keeps them from being
+   mistaken for rule names, so the size and the ink can both come up. */
+.checks tr.band td {
+  padding: var(--s-5) var(--s-3) var(--s-2);
+  border-bottom: 1px solid var(--line-lit);
+  background: transparent;
+  font-family: var(--sans);
+  font-size: var(--fs-sm);
+  font-weight: var(--w-semi);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--ink-2);
+}
+.checks tr.band:first-child td { padding-top: 0; }
+
+/* The card header claims "n of 14 checks cleared". That claim is only checkable
+   if the reader can watch a count reach fourteen, which is exactly what the eye
+   cannot do across six banded groups without an ordinal. It also turns "every
+   rule runs, every time" from an assertion into something visible: an engine
+   that short-circuited would stop numbering early.
+
+   Which is a job it could not do at 11px muted - the smallest, palest mark in
+   the table was the one carrying the "all fourteen ran" proof. Sized and inked
+   to be countable on a projector; still a step under the verdict word beside it,
+   because the ordinal is evidence for the count and not a judgement itself.
+
+   Note the wording: this comment ships inside the page, so it must not spell
+   either verdict word out. tests/test_api.py counts those literals in the
+   response body to prove the table still renders a result for every rule, and a
+   stylesheet comment that mentions one adds a phantom check to the count. */
+.checks td.ord {
+  width: 52px;
+  padding-right: 0;
+  text-align: right;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+/* A failing check carries a verdict of its own, and deny and escalate are not
+   the same event: one refused the action, the other handed it to a person. That
+   distinction lived only in the review's summary pill, which meant a decision
+   with two failures could not say which of them stopped it. */
+.checks td.detail .pill { margin-right: var(--s-2); }
+
+/* app.css asks for no hover tint on these rows, but `.grid tbody tr:hover`
+   out-specifies `.checks tr:hover`, so the request loses and every row greys
+   out under the cursor - taking its pass/fail wash with it. That is a
+   presenter dragging the cursor down the hero table on camera and wiping the
+   colour off whichever row is being pointed at. Restated here at a weight that
+   wins, because .checks exists on this page and nowhere else; the real fix
+   belongs in app.css and is in the report. */
+.checks tbody tr:hover { background: transparent; }
+.checks tbody tr.pass:hover { background: var(--pass-wash); }
+.checks tbody tr.fail:hover { background: var(--fail-wash); }
+
+/* Thirty-odd features in one grid is a fog: nothing for the eye to travel
+   along, and no way to tell which value belongs to which label three columns
+   over. A hairline per item gives the block a rhythm for almost no ink. Label
+   above value is kept deliberately - a feature value can be as long as
+   `international_transaction_not_allowed`, and a label-beside-value row would
+   either wrap it raggedly or shove it out of its column. */
+dl.kv.features > div {
+  padding-bottom: var(--s-1);
+  border-bottom: 1px solid var(--line-soft);
+}
+</style>
+
 <p class="crumb"><a href="/events">events</a> / <span class="mono">{{ r.event.id }}</span></p>
 
 <h1>{{ r.profile.label }}</h1>
@@ -10,14 +112,77 @@
   {{ r.event.amount_paise|rupees }} at risk &middot;
   {{ r.event.customer.name if r.event.customer else "unknown customer" }} &middot;
   {{ r.event.occurred_at|ist }}
+  {#
+    Only on a treated event. A control event announces its arm three inches
+    lower in a violet band a foot high, and a pill saying the same word
+    immediately above it is a stutter rather than a second signal.
+  #}
+  {% if not r.is_control %}<span class="pill c-treatment">treatment arm</span>{% endif %}
 </p>
 
-{% if r.is_control %}
-<div class="holdout">
-  <b>Held out.</b> This event was scored and decided exactly as a treated event
-  would be &mdash; the whole chain below is real &mdash; and then execution was
-  suppressed at the last step. What follows the decision is the counterfactual:
-  what happened when Recoup did nothing.
+{% if r.is_control and r.stages %}
+{#
+  The hero surface of the whole project, and the only .headline this page is
+  allowed: a decision computed, reviewed, recorded, and then deliberately not
+  sent. The figure is the money that was left alone; the comparison beside it
+  states the counterfactual as two facts rather than a paragraph, because that
+  pair is what a viewer has to leave with.
+
+  Gated on there being a decision to withhold. Every clause of the banner -
+  scored, decided, and then suppressed at the last step - is a claim about rows
+  in the audit trail, and on a held-out event the pipeline has never reached
+  there are no such rows. It asserted all three anyway and then contradicted
+  itself three lines lower by printing "no decision" under "what Recoup
+  decided". The page whose argument is that this project does not overclaim
+  cannot open with a paragraph its own database will not support.
+#}
+{% set last_stage = r.stages|last %}
+<div class="headline split holdout-hero">
+  <div>
+    <p class="headline-k">control arm &middot; execution held out</p>
+    <p class="headline-v">{{ r.event.amount_paise|rupees }}</p>
+    <p class="headline-s">
+      <b>Held out.</b> This event was scored and decided exactly as a treated
+      event would be &mdash; the whole chain below is real &mdash; and then
+      execution was suppressed at the last step. What follows the decision is
+      the counterfactual: what happened when Recoup did nothing.
+    </p>
+  </div>
+  <div class="headline-compare">
+    <dl>
+      <div>
+        <dt>what Recoup decided</dt>
+        <dd>{{ last_stage.decision.action_type.value|humanise }}</dd>
+      </div>
+      <div>
+        <dt>what Recoup executed</dt>
+        <dd class="nil">nothing</dd>
+      </div>
+    </dl>
+  </div>
+</div>
+
+{% elif r.is_control %}
+{#
+  Held out, but untouched. The arm assignment is the one fact this event has, so
+  it is the only one stated - mirroring the "Nothing has been executed" state
+  further down the page, where a stage that has not run and a stage that ran and
+  produced nothing are deliberately kept apart. No .split here: there is no
+  counterfactual pair to show yet, and an empty comparison column beside the
+  figure would read as a decision that failed to render.
+#}
+<div class="headline holdout-hero">
+  <div>
+    <p class="headline-k">control arm &middot; nothing decided yet</p>
+    <p class="headline-v">{{ r.event.amount_paise|rupees }}</p>
+    <p class="headline-s">
+      <b>Held out, and not yet processed.</b> This event was randomised into the
+      holdout the moment it landed, so Recoup will never execute against it
+      &mdash; but the pipeline has not scored or decided it either, so there is
+      no withheld decision to show. Run
+      <code>python scripts/run_pipeline.py</code> and the chain below fills in.
+    </p>
+  </div>
 </div>
 {% endif %}
 
@@ -82,6 +247,18 @@
         <div><dt>earliest action</dt><dd>{{ r.assessment.earliest_action_at|ist }}</dd></div>
         <div><dt>scorer</dt><dd class="mono">{{ r.assessment.scorer_version }}</dd></div>
       </dl>
+      {#
+        The two figures above are not two independent outputs, and a reader who
+        assumes they are will over-read the rupee one. The identity is stated
+        symbolically to keep it exact: multiplying the displayed percentage by
+        the displayed amount prints a product a few rupees off the stored value,
+        and a dashboard whose own arithmetic does not close is worse than one
+        that does not show it.
+      #}
+      <p class="formula">
+        expected value = recoverability &times; amount at risk =
+        <b>{{ r.assessment.expected_value_paise|rupees }}</b>
+      </p>
       <p class="note">
         {% if r.basis.startswith("fitted") %}
           The base rate was measured from observed outcomes for this reason code
@@ -95,7 +272,7 @@
       </p>
 
       <div class="sub">
-        <h3>every feature the score was computed from</h3>
+        <h3>every feature the score was computed from &middot; {{ r.assessment.features|length }} fields</h3>
         <dl class="kv features">
           {% for key, value in r.assessment.features.items() %}
           <div><dt>{{ key|humanise }}</dt><dd class="mono">{{ value }}</dd></div>
@@ -113,10 +290,35 @@
     </div>
   </li>
 
+  {#
+    The six questions the fourteen bounds answer, in the order the engine runs
+    them. Keyed by rule name rather than by position, so a rule that moves
+    inside RULES lands in the right band instead of silently relabelling its
+    neighbours, and a name this map has never heard of gets a band of its own
+    rather than being absorbed into whatever came before it.
+  #}
+  {% set check_bands = {
+    "context_is_evaluable": "is the input evaluable",
+    "unknown_reason_fails_closed": "is the input evaluable",
+    "never_retry_risk_declines": "is acting safe at all",
+    "attempt_cap": "is acting safe at all",
+    "timing_floor": "is now the right moment",
+    "quiet_hours": "is now the right moment",
+    "contact_frequency": "is now the right moment",
+    "incentive_eligibility": "what acting is allowed to cost",
+    "incentive_depth": "what acting is allowed to cost",
+    "incentive_ev_positive": "what acting is allowed to cost",
+    "daily_budget": "what acting is allowed to cost",
+    "minimum_expected_value": "is it worth it, and whose call is it",
+    "high_value_needs_human": "is it worth it, and whose call is it",
+    "control_arm_suppression": "is the experiment intact"
+  } %}
+
   {% for stage in r.stages %}
+  {% set params = stage.decision.params or {} %}
 
   <li class="stage">
-    <span class="tag">decision</span>
+    <span class="tag">decision{{ " " ~ loop.index if r.stages|length > 1 else "" }}</span>
     <div class="card">
       <header>
         <h2>
@@ -125,15 +327,41 @@
         </h2>
         <span class="meta">{{ stage.decision.created_at|ist }}</span>
       </header>
+      {#
+        Routing is the bounded-autonomy claim in one sentence: most events never
+        reach a model at all, and the ones that do are named as such with a
+        stated reason. It was buried in the parameter blob at the foot of this
+        card, where nobody watching a video was ever going to find it.
+      #}
+      {% if params.get("routing_reason") %}
+      <p class="note"><b>Routing.</b> {{ params["routing_reason"] }}</p>
+      {% endif %}
       {% if stage.decision.rationale %}
       <blockquote>{{ stage.decision.rationale }}</blockquote>
       {% endif %}
+      {#
+        Roughly a third of the run defers rather than acts, and until now the
+        only evidence of it was two ISO timestamps inside the JSON below. A
+        deferral is a decision, not an absence of one.
+      #}
+      {% if params.get("deferred_reason") %}
+      <p class="note">
+        <b>Deferred, not dropped.</b> {{ params["deferred_reason"] }} &mdash; the
+        action was scheduled rather than sent at decision time. The exact
+        timestamps are in the parameters below.
+      </p>
+      {% endif %}
+      {#
+        Rendered only when a model was actually called. An always-present but
+        usually empty definition grid left a ruled gap under every rules-sourced
+        decision, which on the current run is 579 of the 600.
+      #}
+      {% if stage.decision.model %}
       <dl class="kv">
-        {% if stage.decision.model %}
         <div><dt>model</dt><dd class="mono">{{ stage.decision.model }}</dd></div>
         <div><dt>tokens</dt><dd class="n">{{ stage.decision.input_tokens|group_indian }} in / {{ stage.decision.output_tokens|group_indian }} out</dd></div>
-        {% endif %}
       </dl>
+      {% endif %}
       {% if stage.decision.params %}
       <div class="sub">
         <h3>parameters</h3>
@@ -144,7 +372,7 @@
   </li>
 
   <li class="stage">
-    <span class="tag">policy</span>
+    <span class="tag">policy{{ " " ~ loop.index if r.stages|length > 1 else "" }}</span>
     <div class="card">
       {% if stage.review %}
       <header>
@@ -154,21 +382,36 @@
         </h2>
         <span class="meta">{{ stage.review.created_at|ist }}</span>
       </header>
+      {# Four columns and a nowrap rule-name column. It fits comfortably at any
+         width this is demoed on, but a body-level horizontal scrollbar is the
+         one layout failure a recording cannot hide, so the table gets its own
+         overflow rather than borrowing the page's. #}
+      <div class="scroll">
       <table class="grid checks">
         <tbody>
+          {% set band = namespace(current=none) %}
           {% for check in stage.checks %}
+          {% set this_band = check_bands.get(check.name, "further bounds") %}
+          {% if this_band != band.current %}
+          {% set band.current = this_band %}
+          <tr class="band"><td colspan="4">{{ this_band }}</td></tr>
+          {% endif %}
           <tr class="{{ 'pass' if check.passed else 'fail' }}">
+            <td class="ord">{{ loop.index }}</td>
             <td class="mark">{{ "PASS" if check.passed else "FAIL" }}</td>
             <td class="mono name">{{ check.name }}</td>
-            <td class="detail">{{ check.detail }}</td>
+            <td class="detail">{% if not check.passed and check.get("verdict") %}<span class="pill v-{{ check.get('verdict') }}">{{ check.get("verdict") }}</span>{% endif %}{{ check.detail }}</td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
+      </div>
       <p class="note">
         Every rule runs, every time &mdash; no short-circuiting on the first
         failure. "Denied by quiet hours" would hide that the action also blew
         the attempt cap, and the passes are what make the permission auditable.
+        The six headings are a reading aid only: the engine holds one flat list
+        and evaluates it in the numbered order above.
       </p>
       {% else %}
       <header><h2>Not reviewed</h2></header>
@@ -178,7 +421,7 @@
   </li>
 
   <li class="stage">
-    <span class="tag">action</span>
+    <span class="tag">action{{ " " ~ loop.index if r.stages|length > 1 else "" }}</span>
     <div class="card">
       {% if stage.run %}
       <header>
@@ -188,6 +431,18 @@
         </h2>
         <span class="meta">{{ stage.run.executed_at|ist }}</span>
       </header>
+      {#
+        The gateway response below is a convincing-looking JSON envelope. On a
+        dry run it is synthetic, and saying so here rather than only inside the
+        blob is the difference between a demo and a claim.
+      #}
+      {% if stage.run.status.value == "skipped_dry_run" %}
+      <p class="note">
+        Composed and recorded, not placed. The executor is in dry run, so the
+        gateway response below is a simulated envelope and no Razorpay call was
+        made for it.
+      </p>
+      {% endif %}
       <dl class="kv">
         <div><dt>razorpay ref</dt><dd class="mono">{{ stage.run.razorpay_ref or "—" }}</dd></div>
         <div><dt>incentive</dt><dd class="n">{{ stage.run.incentive_paise|rupees }}</dd></div>
@@ -197,23 +452,76 @@
       {% if stage.run.response %}
       <div class="sub"><h3>gateway response</h3><pre>{{ stage.run.response|pretty }}</pre></div>
       {% endif %}
+
       {% elif r.is_control %}
-      <header><h2>Nothing executed</h2></header>
+      <header>
+        <h2>
+          Nothing executed
+          <span class="pill c-control">holdout</span>
+        </h2>
+      </header>
       <p class="suppressed">
-        Suppressed for the holdout. The decision above is exactly what Recoup
+        <b>Suppressed for the holdout.</b> The decision above is exactly what Recoup
         would have done to this {{ r.event.amount_paise|rupees }} &mdash; it was
         computed, reviewed and recorded, and then not sent. That is what makes
         the incremental number on the overview page mean anything.
       </p>
+
+      {#
+        The copy that used to stand here offered two possibilities - policy
+        refused it, or the executor has not got to it - and left the reader to
+        guess which. The review above already knows, so the page says it. Deny
+        and escalate stay apart: a bound that hands a decision to a person is
+        not a bound that threw it away, and conflating the two is the quickest
+        way to make bounded autonomy sound like a broken agent.
+      #}
+      {% elif stage.review and stage.review.verdict.value == "escalate" %}
+      <header>
+        <h2>
+          Handed to a human
+          <span class="pill v-escalate">escalate</span>
+        </h2>
+      </header>
+      <p class="note">
+        Over the autonomy limit, so the agent stopped instead of acting. The
+        decision and its reasoning are on the record for whoever picks it up,
+        and nothing was sent.
+      </p>
+
+      {% elif stage.review and stage.review.verdict.value == "deny" %}
+      <header>
+        <h2>
+          Refused by policy
+          <span class="pill v-deny">deny</span>
+        </h2>
+      </header>
+      <p class="note">
+        A bound above refused this decision, so the executor never saw it. The
+        reasoning still stands on the record, which is the point of running all
+        {{ stage.checks|length }} checks rather than stopping at the first
+        failure.
+      </p>
+
       {% else %}
       <header><h2>Nothing executed</h2></header>
-      <p class="note">No action run. Either policy refused the decision or the executor has not reached this event.</p>
+      <p class="note">
+        No action run, and no refusal either. The executor has not reached this
+        event yet.
+      </p>
       {% endif %}
 
-      {% if r.contacts or r.spends %}
+      {#
+        The ledger is event-level, not stage-level. Rendering it against the
+        last decision keeps it from being repeated under every decision on an
+        event that took more than one run at the problem.
+      #}
+      {% if loop.last and (r.contacts or r.spends) %}
       <div class="sub">
         <h3>ledger</h3>
         <table class="grid tight">
+          <thead>
+            <tr><th>entry</th><th>what</th><th class="n">when</th></tr>
+          </thead>
           <tbody>
             {% for contact in r.contacts %}
             <tr><td>contact</td><td class="mono">{{ contact.action_type.value }}</td><td class="n">{{ contact.occurred_at|ist }}</td></tr>
@@ -258,15 +566,21 @@
         <div><dt>of amount at risk</dt><dd class="n">{{ r.outcome.recovered_paise|rupees }} of {{ r.event.amount_paise|rupees }}</dd></div>
       </dl>
       {% if r.outcome.note %}<p class="note">{{ r.outcome.note }}</p>{% endif %}
+      {% else %}
+      <header><h2>Unresolved</h2></header>
+      <p class="note">No outcome row. The recovery window has not been resolved for this event.</p>
+      {% endif %}
+      {#
+        Deliberately outside the resolved/unresolved branch. An unresolved
+        control event is still an event Recoup never touched, and that is the
+        fact the treated arm is measured against whether or not an outcome row
+        exists yet.
+      #}
       {% if r.is_control %}
       <p class="note">
         Untouched. Whatever happened here happened without Recoup, which is
         precisely the quantity the treated arm is measured against.
       </p>
-      {% endif %}
-      {% else %}
-      <header><h2>Unresolved</h2></header>
-      <p class="note">No outcome row. The recovery window has not been resolved for this event.</p>
       {% endif %}
     </div>
   </li>

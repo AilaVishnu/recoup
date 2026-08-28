@@ -3,39 +3,177 @@
  * One stylesheet, no framework, no build step, no network. A demo that cannot
  * render because a CDN is slow on conference wifi is a demo that does not exist.
  *
- * Three rules hold the whole thing together:
+ * Four rules hold the whole thing together:
  *
  *   1. Green and red mean policy passed and policy failed. Nothing else is ever
  *      allowed to use them. When a viewer sees red on this dashboard it is a
  *      bound that was violated, every time, with no interpretation needed.
+ *      Colour is never the only signal: a verdict carries a word and a glyph
+ *      as well, because the recording gets watched on phones and by people who
+ *      do not separate those two hues.
  *   2. Money is right-aligned and tabular-figured, so columns of rupees line up
  *      digit for digit and a wrong order of magnitude is visible from the back
  *      of the room.
  *   3. Type is larger than a dense internal tool would justify. This is read on
  *      a projector and through a screen recording, where 13px is a rumour.
+ *   4. One surface per screen is allowed to shout. Everything else steps down.
+ *
+ * Rule 4 is why the scales below exist. Sizes chosen one at a time drift into
+ * each other - 29px here, 27px there, 24px somewhere else - and a page where
+ * every panel is nearly the same weight has no hierarchy at all, only noise.
+ * Every font-size, gap and radius in this file resolves to a token. A raw pixel
+ * value that is not on a scale is a bug, because it is the mechanism by which
+ * the next edit flattens the page again.
+ *
+ * COMPONENT INDEX - what page templates are expected to reach for:
+ *   layout      .panel  .cols  .scroll  .head + .head-sub + .head-aside
+ *   metrics     .headline (at most one per page)
+ *               .tiles > .tile [.key | .muted | .span-2]
+ *   tables      table.grid [.tight .kv .rows .checks .bounds .rules]
+ *   verdicts    .pill.v-allow/-deny/-escalate   .chip.pass / .chip.fail
+ *   cohorts     .pill.c-treatment/-control      .holdout   .suppressed
+ *   prose       .lede  .note[.quote]  .caveat  .formula  .crumb  .eyebrow
+ *   replay      .timeline > .stage > .tag + .card
+ *   states      .empty  .filters  .pager
  */
 
 :root {
+  /* --- surfaces ----------------------------------------------------------
+   * Three depths, not five: the room, a thing in the room, a thing inside that
+   * thing. A fourth is indistinguishable once a 1080p capture has been
+   * re-encoded by a video platform, so it would cost a token and buy nothing.
+   */
   --bg: #0e1116;
   --panel: #151a21;
   --panel-2: #1b212b;
-  --line: #273040;
-  --line-soft: #1f2632;
 
-  --ink: #e9eef6;
-  --ink-2: #bcc7d6;
-  --muted: #8b95a6;
+  /* Lifted from #273040. A 1px hairline is the first thing video compression
+   * eats, and when the rules dissolve a table stops reading as columns - which
+   * takes the "these figures are aligned and comparable" argument with it. */
+  --line: #2c3547;
+  --line-soft: #212836;
+
+  /* The third hairline, and the only one that has to carry meaning on its own.
+   * --line and --line-soft edge things that also have a fill and a position: if
+   * a codec eats a panel border the panel is still obviously a panel. The
+   * replay spine and the rules between table rows have no such fallback - the
+   * spine IS the claim that six stages are one sequence, and the row rules ARE
+   * the claim that these figures form columns. Measured on the projector they
+   * came in at 1.5:1 and 1.2:1, which is to say they were not there. This
+   * clears 3:1 on the page (3.5), on a panel (3.3) and on a hovered row (3.0) -
+   * the floor for a mark that has to be seen without being read.
+   *
+   * It lands at 2.6-2.9 on the tinted rows of the .checks table, and stays here
+   * rather than being pushed past 3:1 for that case: those rows already
+   * separate on their own wash and a 3px inset rail, and a hairline bright
+   * enough for them would be a hairline too bright for the sixty-row event
+   * list, where the rule is the only separator there is. */
+  --line-lit: #586b8f;
+
+  /* --- ink ---------------------------------------------------------------
+   * Every value clears 6.8:1 on --panel. The previous --muted sat at 5.8:1,
+   * which passes WCAG AA and is still a grey smear projected: "compliant on a
+   * laptop" and "legible at the back of a room" are different thresholds, and
+   * this dashboard is graded on the second one.
+   */
+  --ink: #eef2f8;
+  --ink-2: #c3cddb;
+  --muted: #98a3b5;
 
   --accent: #7aa2f7;
   --violet: #c08fd0;
   --amber: #e0af68;
 
-  /* Reserved. Policy verdicts only. */
+  /* Reserved. Policy verdicts only.
+   *
+   * --fail is measured against the surface it is actually drawn on. The FAIL
+   * marker never appears on bare --panel: its row is tinted --fail-wash, which
+   * lifts the pixels behind the glyph and cost the previous #f4707e a full
+   * point - 6.2:1 against the panel this comment used to quote, 5.2:1 against
+   * the row. A contrast figure taken against a background the text never
+   * touches is not a contrast figure. #f68994 clears 6:1 on the failing row,
+   * which is the only place a viewer ever reads it. */
   --pass: #4cc38a;
-  --fail: #f2616f;
+  --fail: #f68994;
+
+  /* Washes and edges as tokens, so no template hand-rolls an rgba() and lands
+   * one notch off the last person's. */
+  --pass-wash: rgba(76, 195, 138, 0.07);
+  --pass-edge: rgba(76, 195, 138, 0.5);
+  --fail-wash: rgba(246, 137, 148, 0.13);
+  --fail-edge: rgba(246, 137, 148, 0.55);
+  --accent-wash: rgba(122, 162, 247, 0.09);
+  --accent-edge: rgba(122, 162, 247, 0.5);
+  --violet-wash: rgba(192, 143, 208, 0.1);
+  --violet-edge: rgba(192, 143, 208, 0.5);
+  --amber-wash: rgba(224, 175, 104, 0.09);
+  --amber-edge: rgba(224, 175, 104, 0.5);
 
   --sans: ui-sans-serif, "Segoe UI", Inter, system-ui, -apple-system, sans-serif;
   --mono: ui-monospace, "JetBrains Mono", "Cascadia Mono", Consolas, "Courier New", monospace;
+
+  /* --- prose scale -------------------------------------------------------
+   * Snapped to whole pixels: a half-pixel glyph edge survives a monitor and
+   * does not survive being downscaled to 720p by a video platform.
+   */
+  --fs-micro: 11px;   /* only inside a dense feature dump */
+  --fs-label: 13px;   /* uppercase eyebrows, table headers, timeline tags */
+  --fs-xs: 13px;
+  --fs-sm: 14px;
+  --fs-md: 15px;
+  --fs-base: 16px;
+  --fs-lg: 17px;      /* lede and holdout banner - prose that must be read */
+  --fs-xl: 20px;      /* panel headings */
+  --fs-2xl: 24px;
+  --fs-3xl: 34px;     /* page h1 */
+
+  /* --- numeral scale -----------------------------------------------------
+   * Separate from the prose scale on purpose. The figures ARE the content
+   * here, so they get their own steps, and the steps are far enough apart to
+   * read as different ranks rather than as a rendering accident.
+   *   hero -> the one number the page is about
+   *   xl   -> the primary tile in a row of tiles
+   *   lg   -> an ordinary metric tile
+   *   md   -> a deliberately demoted figure (the counterfactual, a small tile)
+   *   sm   -> a figure promoted out of a table cell
+   */
+  --num-hero: clamp(40px, 4.4vw, 62px);
+  --num-xl: 34px;
+  --num-lg: 28px;
+  --num-md: 22px;
+  --num-sm: 18px;
+
+  /* --- space -------------------------------------------------------------
+   * Roughly 1.4x per step. Vertical rhythm is the cheapest hierarchy there is
+   * and the only one still standing after a codec has crushed the colour.
+   */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 22px;
+  --s-6: 30px;
+  --s-7: 42px;
+  --s-8: 60px;
+
+  --r-1: 6px;
+  --r-2: 10px;
+  --r-3: 14px;
+  --r-pill: 999px;
+
+  --w-med: 500;
+  --w-semi: 600;
+  --w-bold: 700;
+
+  --page: 1560px;
+  --gutter: 32px;
+  --measure: 76ch;    /* prose wider than this stops being scannable on a 21:9 */
+
+  /* Replay spine geometry, in one place. The rail, the numbered node sitting on
+   * it and the stage tag to its left all have to agree, and previously they
+   * agreed only because three separate hard-coded pixel values happened to. */
+  --rail-x: 128px;
+  --node: 30px;
 }
 
 * { box-sizing: border-box; }
@@ -46,23 +184,69 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font: 16px/1.55 var(--sans);
+  font: var(--fs-base)/1.55 var(--sans);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
+
+/* Focus has to survive projection, so it is a solid two-pixel ring with an
+ * offset rather than the browser default hairline, which vanishes against a
+ * dark panel. :focus-visible and not :focus, so clicking a row does not leave
+ * a ring parked in the middle of the shot. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-1);
+}
+
+/* The keyboard entry point. Off screen until it is tabbed to, which is the only
+ * moment it is useful and the only moment it is allowed to be on camera. */
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: var(--s-2);
+  z-index: 50;
+  background: var(--panel-2);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-1);
+  padding: var(--s-2) var(--s-4);
+  color: var(--ink);
+}
+.skip:focus { left: var(--s-4); }
+
 code, .mono { font-family: var(--mono); }
-b, .strong { font-weight: 600; }
+
+/* Anything that might be compared with the digit above it gets fixed-width
+ * figures. Nearly free on a mono face; load-bearing on Segoe UI, where a
+ * proportional "1" is half the width of an "8" and a column of rupees fans
+ * out into a ragged edge. */
+.mono, code, pre, .tnum, .n, .v, .count, .pager, .flag {
+  font-variant-numeric: tabular-nums;
+}
+
+b, strong, .strong { font-weight: var(--w-semi); }
 .dim { color: var(--muted); }
 
-/* --- chrome ------------------------------------------------------------- */
+::selection { background: var(--accent-edge); color: #0b0f16; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+
+/* --- chrome --------------------------------------------------------------
+ * The bar is sticky because the flags in it answer the first question a
+ * sceptical viewer asks - is this thing actually sending money anywhere? - and
+ * that answer should not scroll away halfway down a 600-row table.
+ */
 
 .top {
   display: flex;
   align-items: center;
-  gap: 28px;
-  padding: 14px 32px;
+  gap: var(--s-6);
+  padding: var(--s-3) var(--gutter);
   border-bottom: 1px solid var(--line);
   background: linear-gradient(var(--panel), var(--bg));
   position: sticky;
@@ -72,167 +256,460 @@ b, .strong { font-weight: 600; }
 
 .brand {
   font-family: var(--mono);
-  font-size: 19px;
-  font-weight: 700;
+  font-size: var(--fs-xl);
+  font-weight: var(--w-bold);
   letter-spacing: -0.02em;
   color: var(--ink);
+  white-space: nowrap;
 }
 .brand:hover { text-decoration: none; color: var(--accent); }
 
-.top nav { display: flex; gap: 22px; }
+.top nav { display: flex; gap: var(--s-2); }
+
+/* Nav items get real hit areas and a filled active state. The old version
+ * marked the current page with a 2px underline plus a colour shift: two subtle
+ * cues where the video needs one obvious one. Someone scrubbing the recording
+ * should never have to work out which tab they are looking at. */
 .top nav a {
   color: var(--muted);
-  font-size: 15px;
-  padding: 4px 0;
+  font-size: var(--fs-md);
+  font-weight: var(--w-med);
+  letter-spacing: 0.01em;
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-1);
   border-bottom: 2px solid transparent;
+  transition: color 0.12s, background 0.12s;
 }
-.top nav a:hover { color: var(--ink); text-decoration: none; }
-.top nav a.on { color: var(--ink); border-bottom-color: var(--accent); }
+.top nav a:hover { color: var(--ink); background: var(--panel-2); text-decoration: none; }
+.top nav a.on {
+  color: var(--ink);
+  font-weight: var(--w-semi);
+  background: var(--accent-wash);
+  border-bottom-color: var(--accent);
+}
 
-.flags { margin-left: auto; display: flex; gap: 10px; }
+/* Status, not decoration. Each flag is a lit indicator with a dot, so the pair
+ * reads as an instrument panel - this run is in dry mode, thirteen bounds are
+ * armed - rather than as two grey chips added for texture. */
+.flags {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: center;
+}
 .flag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
   font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: 0.04em;
-  color: var(--muted);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.03em;
+  color: var(--ink-2);
+  background: var(--panel-2);
   border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 3px 11px;
+  border-radius: var(--r-pill);
+  padding: 5px 13px;
+  white-space: nowrap;
 }
+.flag .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+/* Dry run is the safe state, so it reads calm. Amber is held for the mode in
+ * which the executor would place real calls, because that is the one a viewer
+ * needs to notice without being told. Green and red stay out of this entirely:
+ * on this dashboard they mean a policy verdict and nothing else. */
+.flag.mode-dry { color: var(--accent); border-color: var(--accent-edge); }
+.flag.mode-dry .dot { background: var(--accent); }
+.flag.mode-live { color: var(--amber); border-color: var(--amber-edge); }
+.flag.mode-live .dot { background: var(--amber); }
+.flag.bounds .dot { background: var(--pass); opacity: 0.8; }
 
-main { max-width: 1560px; margin: 0 auto; padding: 30px 32px 90px; }
+main {
+  max-width: var(--page);
+  margin: 0 auto;
+  padding: var(--s-6) var(--gutter) var(--s-8);
+}
 
 footer {
-  max-width: 1560px;
+  max-width: var(--page);
   margin: 0 auto;
-  padding: 26px 32px 40px;
+  padding: var(--s-5) var(--gutter) var(--s-7);
   border-top: 1px solid var(--line-soft);
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--fs-sm);
+  line-height: 1.65;
 }
+footer p { margin: 0; max-width: 92ch; }
+footer code { color: var(--ink-2); }
+
+/* --- headings and prose --------------------------------------------------
+ * The ladder is h1 34 / h2 20 / eyebrow 13-uppercase. Three ranks, each a clear
+ * step from the next. Four ranks is where a viewer stops being able to tell
+ * which is which at a glance, and this page is glanced at rather than read.
+ */
 
 h1 {
-  font-size: 30px;
-  line-height: 1.2;
-  letter-spacing: -0.02em;
-  margin: 8px 0 10px;
+  font-size: var(--fs-3xl);
+  line-height: 1.15;
+  font-weight: var(--w-semi);
+  letter-spacing: -0.025em;
+  margin: var(--s-2) 0 var(--s-3);
 }
 
-h2 { font-size: 18px; margin: 0 0 14px; letter-spacing: -0.01em; }
-h3 {
-  font-size: 12px;
+h2 {
+  font-size: var(--fs-xl);
+  line-height: 1.3;
+  font-weight: var(--w-semi);
+  margin: 0 0 var(--s-4);
+  letter-spacing: -0.01em;
+}
+
+/* h3 is a category marker, not a heading in the reading sense - it labels a
+ * sub-block inside an already-titled panel. Rendering it as small uppercase
+ * keeps it from competing with the h2 above it for the same eye. */
+h3, .eyebrow {
+  font-size: var(--fs-label);
   text-transform: uppercase;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.1em;
   color: var(--muted);
-  margin: 22px 0 10px;
-  font-weight: 600;
+  margin: var(--s-5) 0 var(--s-3);
+  font-weight: var(--w-semi);
+}
+.eyebrow { display: block; margin: 0 0 var(--s-2); }
+
+/* Section header with subtitle. The subtitle carries the qualification that
+ * would otherwise get bolted onto the heading itself and make it two lines of
+ * 20px type - which reads as a second headline and steals the page. */
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-1) var(--s-4);
+  margin: 0 0 var(--s-4);
+}
+.head h2, .head h3 { margin: 0; }
+.head-sub {
+  flex: 1 1 28ch;
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+.head-aside {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 .lede {
-  max-width: 78ch;
+  max-width: var(--measure);
   color: var(--ink-2);
-  font-size: 16px;
-  margin: 0 0 26px;
-}
-
-.crumb { font-size: 14px; color: var(--muted); margin: 0 0 6px; }
-
-.note {
-  color: var(--muted);
-  font-size: 14px;
+  font-size: var(--fs-lg);
   line-height: 1.6;
-  max-width: 82ch;
-  margin: 12px 0 0;
+  margin: 0 0 var(--s-6);
 }
-.note.quote { border-left: 2px solid var(--line); padding-left: 14px; }
 
-/* --- empty states ------------------------------------------------------- */
+.crumb { font-size: var(--fs-sm); color: var(--muted); margin: 0 0 var(--s-2); }
+
+/* On this site .note is not an annotation, it is the argument. What the holdout
+ * costs, why the passes are recorded and not only the failures, which of the
+ * two figures labelled "organic" this one is - every sentence a sceptical judge
+ * needs is a .note. At 15px in --muted (6.9:1) that prose was the first thing
+ * on the page to dissolve on a projector, which left the honesty case as the
+ * least legible thing here. Base size in --ink-2 (10.9:1) puts it one clear
+ * step under the lede instead of one clear step under readable. */
+.note {
+  color: var(--ink-2);
+  font-size: var(--fs-base);
+  line-height: 1.65;
+  max-width: 84ch;
+  margin: var(--s-3) 0 0;
+}
+/* The body moved up to --ink-2, so emphasis has to move up with it or bold
+ * inside a note stops being emphasis at all. */
+.note strong, .note b { color: var(--ink); }
+.note code { color: var(--ink); font-size: var(--fs-sm); }
+.note.quote { border-left: 2px solid var(--line-lit); padding-left: var(--s-4); }
+
+/* An inline caveat: the sentence that stops a figure being over-read. Amber
+ * left rule because a caveat has to be findable when someone pauses the video
+ * to check whether the confidence interval was disclosed - and it always was.
+ * Amber is free to mean "read this twice"; green and red are not. */
+.caveat {
+  border-left: 3px solid var(--amber);
+  background: var(--amber-wash);
+  border-radius: 0 var(--r-1) var(--r-1) 0;
+  padding: var(--s-3) var(--s-4);
+  margin: var(--s-4) 0 0;
+  color: var(--ink-2);
+  font-size: var(--fs-md);
+  line-height: 1.6;
+  max-width: 88ch;
+}
+.caveat b, .caveat strong { color: var(--amber); }
+
+/* The worked arithmetic under a headline figure. Monospaced so the operands
+ * line up with the numbers they came from in the tiles above. */
+.formula {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-md);
+  line-height: 1.7;
+  color: var(--ink-2);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--r-1) var(--r-1) 0;
+  padding: var(--s-4) var(--s-5);
+  margin: 0 0 var(--s-6);
+  overflow-x: auto;
+}
+.formula b { color: var(--ink); font-weight: var(--w-bold); }
+.formula.warn {
+  border-left-color: var(--amber);
+  font-family: var(--sans);
+  font-size: var(--fs-md);
+}
+
+/* --- empty states --------------------------------------------------------
+ * A blank page in front of an audience reads as a crash. These read as an
+ * instruction, so a judge who clones the repo and opens the dashboard before
+ * seeding it is told what to type instead of being left to guess.
+ */
 
 .empty {
   border: 1px dashed var(--line);
-  border-radius: 10px;
-  padding: 34px;
+  border-radius: var(--r-2);
+  padding: var(--s-7) var(--s-5);
   text-align: center;
   color: var(--ink-2);
   background: var(--panel);
 }
-.empty h2 { color: var(--ink); }
-.empty pre { display: inline-block; text-align: left; margin-top: 10px; }
+/* Larger than a panel h2, because when this shows it is not a section heading -
+ * it is the only thing on the page, and it has to carry the screen. */
+.empty h2 { font-size: var(--fs-2xl); color: var(--ink); margin-bottom: var(--s-2); }
+.empty p { margin: 0 auto; max-width: 60ch; color: var(--muted); font-size: var(--fs-md); }
+.empty pre {
+  display: inline-block;
+  text-align: left;
+  margin-top: var(--s-4);
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  border-color: var(--accent-edge);
+}
 
-/* --- tiles -------------------------------------------------------------- */
+/* --- the headline metric -------------------------------------------------
+ * One per page, maximum. This is the surface allowed to shout: the single
+ * number the page exists to report, at a size no tile can reach, so the eye
+ * lands on the figure, then the label, then the caveat, in that order and
+ * without being directed.
+ *
+ * The reading order is enforced by size ratio rather than by position, because
+ * a screen recording gets scrubbed and paused, and a viewer arriving mid-scroll
+ * has no idea what was above.
+ */
+
+.headline {
+  background: linear-gradient(160deg, var(--panel-2), var(--panel));
+  border: 1px solid var(--accent-edge);
+  border-radius: var(--r-3);
+  padding: var(--s-5) var(--s-6) var(--s-6);
+  margin: 0 0 var(--s-5);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s-4) var(--s-7);
+  align-items: start;
+}
+/* "incremental recovery" and "gross recovery" are the thesis of this whole
+ * project, and they were set in the smallest type on their own panel - the
+ * eyebrow size, which exists for category markers nobody has to read. A hero
+ * figure means nothing without the word saying which of the two quantities it
+ * is, so the word gets prose size. */
+.headline-k {
+  margin: 0 0 var(--s-2);
+  font-size: var(--fs-md);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: var(--w-semi);
+  color: var(--accent);
+}
+.headline-v {
+  margin: 0;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--num-hero);
+  line-height: 1;
+  letter-spacing: -0.035em;
+  color: var(--ink);
+  overflow-wrap: normal;
+}
+.headline-s {
+  margin: var(--s-3) 0 0;
+  font-size: var(--fs-lg);
+  line-height: 1.5;
+  color: var(--ink-2);
+  max-width: 52ch;
+}
+.headline .caveat { margin-top: var(--s-4); }
+
+/* .headline.split puts the supporting comparison beside the hero figure rather
+ * than under it. The two-arm contrast is the argument, so it belongs in the
+ * same glance as the number it qualifies, not one scroll below. */
+.headline.split { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+.headline-compare {
+  border-left: 1px solid var(--line);
+  padding-left: var(--s-6);
+  align-self: stretch;
+}
+.headline-compare dl { margin: 0; display: grid; gap: var(--s-3); }
+.headline-compare dt {
+  font-size: var(--fs-md);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--muted);
+}
+.headline-compare dd {
+  margin: 2px 0 0;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--num-md);
+  color: var(--ink-2);
+  letter-spacing: -0.02em;
+}
+
+/* --- metric tiles --------------------------------------------------------
+ * Three ranks and they are ranks, not decorations:
+ *   .tile        an ordinary figure                        28px
+ *   .tile.key    the one that matters in this row, accent  34px
+ *   .tile.muted  a figure shown so it cannot be accused of 22px, grey
+ *                being hidden - the counterfactual, mostly
+ * A 22 / 28 / 34 spread is a full step at each end. The previous file gave the
+ * primary tile the same 29px as everything else and only changed its colour,
+ * which is why every tile in the row competed for the same attention.
+ */
 
 .tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: 14px;
-  margin-bottom: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: var(--s-4);
+  margin-bottom: var(--s-5);
 }
+.tiles.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tiles.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.tiles.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 
 .tile {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 16px 18px 15px;
+  border-radius: var(--r-2);
+  padding: var(--s-4) var(--s-4) var(--s-3);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--s-2);
+  /* Makes the tile a query container so the figure inside can step down when
+   * the grid packs the row tight. "Rs 34,50,000" at 28px needs 216px of run;
+   * an auto-fit track can be narrower than that on a 1366px laptop, and a
+   * rupee figure that wraps after "Rs" is worse than a smaller one. */
+  container-type: inline-size;
 }
-.tile.key { border-color: var(--accent); background: linear-gradient(var(--panel-2), var(--panel)); }
 
 .tile .k {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   text-transform: uppercase;
   letter-spacing: 0.09em;
+  font-weight: var(--w-semi);
   color: var(--muted);
 }
 .tile .v {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
-  font-size: 29px;
-  line-height: 1.1;
-  letter-spacing: -0.02em;
+  font-size: var(--num-lg);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  color: var(--ink);
 }
-.tile.key .v { color: var(--accent); }
-.tile .v.dim { color: var(--muted); }
-.tile .s { font-size: 13px; color: var(--muted); }
-
-.tiles.small .tile { padding: 12px 14px; }
-.tiles.small .v { font-size: 22px; }
-
-.formula {
-  font-family: var(--mono);
-  font-variant-numeric: tabular-nums;
-  font-size: 15px;
-  color: var(--ink-2);
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--accent);
-  border-radius: 8px;
-  padding: 14px 18px;
-  margin: 0 0 26px;
-  overflow-x: auto;
+/* The caveat sinks to the bottom of the tile, which pins every figure in a row
+ * to the same baseline no matter how many lines its own caveat runs to. A row
+ * of headline numbers that do not align horizontally reads as six unrelated
+ * boxes rather than as one comparison. */
+.tile .s {
+  margin-top: auto;
+  padding-top: var(--s-1);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--muted);
 }
-.formula.warn { border-left-color: var(--amber); font-family: var(--sans); }
 
-/* --- panels ------------------------------------------------------------- */
+.tile.key {
+  border-color: var(--accent);
+  background: linear-gradient(160deg, var(--panel-2), var(--panel));
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.tile.key .k { color: var(--accent); }
+.tile.key .v { font-size: var(--num-xl); color: var(--accent); }
+.tile.key .s { color: var(--ink-2); }
+
+/* Deliberately demoted. The counterfactual has to be on the page - hiding it
+ * is how gross recovery gets passed off as incremental - but it is not the
+ * claim, so it is grey and a size down rather than absent. */
+.tile.muted { border-color: var(--line-soft); }
+.tile.muted .v, .tile .v.dim { font-size: var(--num-md); color: var(--muted); }
+
+.tile.span-2 { grid-column: span 2; }
+
+.tiles.small .tile { padding: var(--s-3) var(--s-4); }
+.tiles.small .tile .v { font-size: var(--num-md); }
+/* .tiles.small steps a whole row down, which is right for a secondary readout.
+ * But it is declared after the rank rules above and ties them on specificity,
+ * so it was collapsing .key and .muted onto the same 22px as everything else -
+ * the eval row printing gross and incremental at identical weight, which is
+ * the single misreading this project exists to prevent. The ranks are restated
+ * so the demotion moves all three steps down together instead of flattening
+ * them into one. */
+.tiles.small .tile.key .v { font-size: var(--num-lg); }
+.tiles.small .tile.muted .v { font-size: var(--num-sm); }
+
+@container (max-width: 248px) {
+  .tile .v { font-size: var(--num-md); }
+  .tile.key .v { font-size: var(--num-lg); }
+}
+@container (max-width: 196px) {
+  .tile .v { font-size: var(--num-sm); }
+  .tile.key .v { font-size: var(--num-md); }
+}
+
+/* --- panels --------------------------------------------------------------- */
 
 .cols {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(430px, 1fr));
-  gap: 16px;
-  margin-bottom: 16px;
+  gap: var(--s-4);
+  margin-bottom: var(--s-4);
+  align-items: start;
 }
 
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 20px 22px 22px;
-  margin-bottom: 16px;
+  border-radius: var(--r-2);
+  padding: var(--s-5);
+  margin-bottom: var(--s-4);
 }
 .cols .panel { margin-bottom: 0; }
+.panel > :last-child { margin-bottom: 0; }
 
-/* --- tables ------------------------------------------------------------- */
+/* --- tables --------------------------------------------------------------
+ * The alignment contract: every column of figures is right-aligned, monospaced
+ * and tabular, so two numbers an order of magnitude apart are distinguishable
+ * by their left edge alone, from across a room, without reading the digits.
+ */
 
 .scroll { overflow-x: auto; }
 
@@ -240,20 +717,21 @@ table.grid { width: 100%; border-collapse: collapse; }
 
 .grid th {
   text-align: left;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--fs-xs);
+  font-weight: var(--w-semi);
   text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.08em;
   color: var(--muted);
-  padding: 0 12px 9px;
-  border-bottom: 1px solid var(--line);
+  padding: 0 var(--s-3) var(--s-2);
+  border-bottom: 1px solid var(--line-lit);
   white-space: nowrap;
 }
 
 .grid td {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--line-soft);
+  padding: var(--s-3);
+  border-bottom: 1px solid var(--line-lit);
   vertical-align: top;
+  font-size: var(--fs-base);
 }
 .grid tbody tr:last-child td { border-bottom: 0; }
 .grid tbody tr:hover { background: var(--panel-2); }
@@ -265,99 +743,195 @@ table.grid { width: 100%; border-collapse: collapse; }
   white-space: nowrap;
 }
 
-.grid.tight td { padding: 6px 12px; font-size: 14px; }
-.grid tr.total td { border-top: 1px solid var(--line); font-weight: 600; }
+.grid.tight td { padding: var(--s-2) var(--s-3); font-size: var(--fs-sm); }
 
-.grid td.detail { color: var(--muted); font-size: 14px; }
+/* A totals row is a different kind of statement from the rows above it, so it
+ * gets a rule and weight rather than just being the last line of the body. */
+.grid tr.total td {
+  border-top: 1px solid var(--line-lit);
+  border-bottom: 0;
+  font-weight: var(--w-semi);
+  color: var(--ink);
+  padding-top: var(--s-3);
+}
+
+.grid td.detail { color: var(--muted); font-size: var(--fs-sm); line-height: 1.55; }
 .grid td.name { white-space: nowrap; }
 
-.grid.kv td.key { font-family: var(--mono); font-size: 13px; color: var(--muted); }
-.grid.kv td { border-bottom: 1px solid var(--line-soft); }
+.grid.kv td.key { font-family: var(--mono); font-size: var(--fs-xs); color: var(--muted); }
+.grid.kv td { border-bottom: 1px solid var(--line-lit); }
 
-.rows td { white-space: nowrap; font-size: 15px; }
-.rows a.mono { font-size: 14px; }
-.rows td.strong { font-weight: 600; }
+.rows td { white-space: nowrap; font-size: var(--fs-md); vertical-align: middle; }
+.rows a.mono { font-size: var(--fs-sm); }
+.rows td.strong { font-weight: var(--w-semi); color: var(--ink); }
 
-td.bar { width: 22%; }
+/* The proportion bar gets an unfilled track. Without one a 4% row and a 6% row
+ * are two short stubs floating in space with nothing to measure against; with
+ * one, every row shares a visible baseline and the shape of the distribution
+ * is readable in a single pass. The track is a pseudo-element so this works on
+ * the existing single-span markup. */
+td.bar { width: 20%; min-width: 96px; position: relative; }
+td.bar::before {
+  content: "";
+  position: absolute;
+  left: var(--s-3);
+  right: var(--s-3);
+  top: 15px;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--line-soft);
+}
 td.bar span {
+  position: relative;
   display: block;
-  height: 8px;
-  border-radius: 4px;
+  height: 10px;
+  margin-top: 3px;
+  border-radius: 5px;
   background: var(--accent);
-  opacity: 0.5;
-  min-width: 2px;
+  opacity: 0.62;
+  min-width: 3px;
 }
 
 .bounds td.detail, .rules td.detail { white-space: normal; }
-.rules tr.binds td.name { color: var(--ink); }
+.bounds td.name, .rules td.name { font-size: var(--fs-sm); }
+
+/* A rule that fired is the interesting row on the policy page: it is evidence
+ * that the bounds are load-bearing rather than ornamental, so it is the row
+ * that gets the ink. */
+.rules tr.binds td.name { color: var(--ink); font-weight: var(--w-semi); }
 .rules .example {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: var(--fs-xs);
   color: var(--ink-2);
   padding: 2px 0;
+  line-height: 1.5;
 }
 
-/* --- pills -------------------------------------------------------------- */
+/* --- pills and chips -----------------------------------------------------
+ * A pill is a categorical label. It is bordered rather than filled so that a
+ * table row of them does not turn into a strip of confetti, and so that the
+ * two that are filled - the policy verdicts - stand out as the ones that
+ * carry a judgement.
+ */
 
 .pill {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: 0.04em;
-  padding: 2px 9px;
-  border-radius: 999px;
+  font-size: var(--fs-xs);
+  font-weight: var(--w-med);
+  letter-spacing: 0.03em;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+
+/* The two arms, and only one of them gets a hue.
+ *
+ * Accent blue already means "incremental" - the split bar on the overview, the
+ * label above it and the key tile in the eval row are all painted in it. Two
+ * inches under that bar this pill was using the same blue to mean "treatment
+ * arm", on the one page whose whole argument is that treated recovery and
+ * incremental recovery are different quantities. A viewer reading colour
+ * rather than words was being told they are the same one.
+ *
+ * Violet stays on the holdout, because the counterfactual is the arm that has
+ * to be noticed. Treatment is the default arm and reads as the plain bordered
+ * pill this sheet describes at the top of the section: still a label, no longer
+ * a claim. Left unfilled rather than washed in --panel-2, which is also the
+ * table's own hover colour - a fill that vanishes under the cursor is a fill
+ * that disappears in the one frame where a presenter is pointing at it. */
+.pill.c-treatment { color: var(--ink); border-color: var(--line-lit); }
+.pill.c-control { color: var(--violet); border-color: var(--violet-edge); background: var(--violet-wash); }
+
+.pill.s-rules { color: var(--ink-2); }
+.pill.s-llm { color: var(--accent); border-color: var(--accent-edge); }
+.pill.s-suppressed { color: var(--muted); }
+
+.pill.b-prior { color: var(--muted); }
+.pill.b-fitted { color: var(--accent); border-color: var(--accent-edge); }
+
+.pill.a-agent { color: var(--accent); border-color: var(--accent-edge); }
+.pill.a-organic { color: var(--muted); }
+.pill.a-unclear { color: var(--amber); border-color: var(--amber-edge); }
+
+.pill.r-sent { color: var(--ink); }
+.pill.r-pending { color: var(--muted); }
+.pill.r-failed { color: var(--amber); border-color: var(--amber-edge); }
+.pill.r-skipped_dry_run { color: var(--muted); }
+
+/* Policy verdicts. The only sanctioned use of green and red on this page, and
+ * the glyph is not garnish: red-green is the common form of colour blindness,
+ * the recording gets watched on phones in daylight, and a verdict that is only
+ * a hue is a verdict some viewers cannot read. The word is already in the
+ * markup; the glyph makes it survivable at a glance.
+ *
+ * There used to be a .no-glyph escape hatch here, for the one pill that wraps a
+ * count rather than a word - the "blocked" column on /policy. Nothing ever used
+ * it, and nothing should have: stripping the glyph off a count leaves deny and
+ * escalate separated by hue alone, in the one column where the difference
+ * between "refused" and "handed to a person" is the entire finding. That column
+ * now prints its verdict word beside the count, so no pill on this site is ever
+ * down to a single signal. */
+.pill.v-allow, .pill.v-deny, .pill.v-escalate { font-weight: var(--w-semi); }
+.pill.v-allow { color: var(--pass); border-color: var(--pass-edge); background: var(--pass-wash); }
+.pill.v-deny { color: var(--fail); border-color: var(--fail-edge); background: var(--fail-wash); }
+.pill.v-escalate { color: var(--amber); border-color: var(--amber-edge); background: var(--amber-wash); }
+.pill.v-allow::before { content: "\2713"; }
+.pill.v-deny::before { content: "\2715"; }
+.pill.v-escalate::before { content: "\25B2"; font-size: 9px; }
+
+/* Standalone pass/fail chip, for anywhere a check result appears outside the
+ * .checks table. Word plus glyph plus hue, in that order of reliability. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: var(--w-bold);
+  letter-spacing: 0.08em;
+  padding: 3px 10px;
+  border-radius: var(--r-1);
   border: 1px solid var(--line);
   color: var(--ink-2);
   white-space: nowrap;
 }
+.chip.pass { color: var(--pass); border-color: var(--pass-edge); background: var(--pass-wash); }
+.chip.fail { color: var(--fail); border-color: var(--fail-edge); background: var(--fail-wash); }
+.chip.warn { color: var(--amber); border-color: var(--amber-edge); background: var(--amber-wash); }
+.chip.pass::before { content: "\2713"; }
+.chip.fail::before { content: "\2715"; }
+.chip.warn::before { content: "\25B2"; font-size: 9px; }
 
-.pill.c-treatment { color: var(--accent); border-color: rgba(122, 162, 247, 0.45); }
-.pill.c-control { color: var(--violet); border-color: rgba(192, 143, 208, 0.5); }
+.ok { font-weight: var(--w-semi); color: var(--ink); }
 
-.pill.s-rules { color: var(--ink-2); }
-.pill.s-llm { color: var(--accent); border-color: rgba(122, 162, 247, 0.45); }
-.pill.s-suppressed { color: var(--muted); }
-
-.pill.b-prior { color: var(--muted); }
-.pill.b-fitted { color: var(--accent); border-color: rgba(122, 162, 247, 0.45); }
-
-.pill.a-agent { color: var(--accent); border-color: rgba(122, 162, 247, 0.45); }
-.pill.a-organic { color: var(--muted); }
-.pill.a-unclear { color: var(--amber); border-color: rgba(224, 175, 104, 0.4); }
-
-.pill.r-sent { color: var(--ink); }
-.pill.r-pending { color: var(--muted); }
-.pill.r-failed { color: var(--amber); border-color: rgba(224, 175, 104, 0.4); }
-.pill.r-skipped_dry_run { color: var(--muted); }
-
-/* Policy verdicts. The only sanctioned use of green and red on this page. */
-.pill.v-allow { color: var(--pass); border-color: rgba(76, 195, 138, 0.45); }
-.pill.v-deny { color: var(--fail); border-color: rgba(242, 97, 111, 0.5); }
-.pill.v-escalate { color: var(--amber); border-color: rgba(224, 175, 104, 0.45); }
-
-.ok { font-weight: 600; color: var(--ink); }
-
-/* --- filters ------------------------------------------------------------ */
+/* --- filters and pager ---------------------------------------------------- */
 
 .filters {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: 14px;
-  padding: 16px 18px;
+  gap: var(--s-4);
+  padding: var(--s-4) var(--s-4) var(--s-4);
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  margin-bottom: 16px;
+  border-radius: var(--r-2);
+  margin-bottom: var(--s-4);
 }
 
 .filters label {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  font-size: 12px;
+  gap: var(--s-1);
+  font-size: var(--fs-xs);
   text-transform: uppercase;
   letter-spacing: 0.08em;
+  font-weight: var(--w-semi);
   color: var(--muted);
 }
 
@@ -365,218 +939,334 @@ td.bar span {
   background: var(--panel-2);
   color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: 7px;
-  padding: 8px 10px;
-  font: 15px var(--sans);
-  min-width: 168px;
+  border-radius: var(--r-1);
+  padding: var(--s-2) var(--s-3);
+  font: var(--fs-md) var(--sans);
+  min-width: 172px;
 }
+.filters select:hover { border-color: var(--accent-edge); }
 
 .filters button {
   background: var(--accent);
   color: #0b0f16;
   border: 0;
-  border-radius: 7px;
-  padding: 9px 20px;
-  font: 600 15px var(--sans);
+  border-radius: var(--r-1);
+  padding: var(--s-2) var(--s-5);
+  font: var(--w-semi) var(--fs-md) var(--sans);
   cursor: pointer;
 }
-.filters button:hover { filter: brightness(1.1); }
-.filters .clear { font-size: 14px; padding-bottom: 9px; }
+.filters button:hover { filter: brightness(1.12); }
+.filters .clear { font-size: var(--fs-sm); padding-bottom: 10px; }
 .filters .count {
   margin-left: auto;
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
-  color: var(--muted);
-  padding-bottom: 9px;
+  font-size: var(--fs-md);
+  color: var(--ink-2);
+  padding-bottom: 10px;
 }
 
 .pager {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: var(--s-6);
   justify-content: center;
-  padding: 22px 0 0;
-  font-size: 15px;
+  padding: var(--s-5) 0 0;
+  font-size: var(--fs-md);
   color: var(--ink-2);
 }
 
-/* --- the replay timeline ------------------------------------------------ */
+/* --- the replay timeline -------------------------------------------------
+ * The spine is numbered. failure -> score -> decision -> checks -> action ->
+ * outcome is a sequence, and a viewer who joins the video at the policy card
+ * needs to know it is step four of six rather than a panel that happens to be
+ * there. The numbers come from a CSS counter, so the ordinal cannot fall out
+ * of step with the markup the way a hard-coded one silently would.
+ */
 
-.timeline { list-style: none; margin: 26px 0 0; padding: 0; position: relative; }
+.timeline {
+  list-style: none;
+  margin: var(--s-6) 0 0;
+  padding: 0;
+  position: relative;
+  counter-reset: step;
+}
 
 .timeline::before {
   content: "";
   position: absolute;
-  left: 118px;
+  left: var(--rail-x);
+  margin-left: -1px;
   top: 10px;
   bottom: 10px;
   width: 2px;
-  background: var(--line);
+  background: var(--line-lit);
 }
 
-.stage { position: relative; padding-left: 152px; margin-bottom: 16px; }
+.stage {
+  position: relative;
+  padding-left: calc(var(--rail-x) + var(--node) / 2 + var(--s-5));
+  margin-bottom: var(--s-4);
+  counter-increment: step;
+}
 
 .stage::before {
-  content: "";
+  content: counter(step);
   position: absolute;
-  left: 112px;
-  top: 22px;
-  width: 14px;
-  height: 14px;
+  left: calc(var(--rail-x) - var(--node) / 2);
+  top: 17px;
+  width: var(--node);
+  height: var(--node);
   border-radius: 50%;
   background: var(--bg);
-  border: 2px solid var(--line);
+  border: 2px solid var(--line-lit);
+  display: grid;
+  place-items: center;
+  font: var(--w-bold) var(--fs-xs)/1 var(--mono);
+  color: var(--muted);
 }
 
 .stage .tag {
   position: absolute;
   left: 0;
-  top: 20px;
-  width: 96px;
+  top: 22px;
+  width: calc(var(--rail-x) - var(--node) / 2 - var(--s-4));
   text-align: right;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-label);
   letter-spacing: 0.1em;
   text-transform: uppercase;
+  font-weight: var(--w-semi);
   color: var(--muted);
 }
 
-.timeline.is-control::before { background: rgba(192, 143, 208, 0.4); }
-.timeline.is-control .stage::before { border-color: var(--violet); }
-.timeline.is-control .card { border-left: 3px solid rgba(192, 143, 208, 0.55); }
+/* The control arm re-tints the whole spine. This is the hero screen: a decision
+ * computed, reviewed and then deliberately not executed. The violet says the
+ * page you are on is the counterfactual, and it says it continuously down the
+ * left edge rather than once in a banner you have already scrolled past. */
+.timeline.is-control::before { background: var(--violet-edge); }
+.timeline.is-control .stage::before { border-color: var(--violet); color: var(--violet); }
+.timeline.is-control .card { border-left: 3px solid var(--violet-edge); }
 
 .card {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 18px 22px 20px;
+  border-radius: var(--r-2);
+  padding: var(--s-4) var(--s-5) var(--s-5);
 }
 
 .card header {
   display: flex;
   align-items: baseline;
-  gap: 14px;
-  margin-bottom: 14px;
+  gap: var(--s-4);
+  margin-bottom: var(--s-4);
+  padding-bottom: var(--s-3);
+  border-bottom: 1px solid var(--line-soft);
 }
-.card header h2 { margin: 0; display: flex; align-items: center; gap: 10px; }
+.card header h2 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
 .card header .meta {
   margin-left: auto;
   font-family: var(--mono);
-  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-xs);
   color: var(--muted);
   white-space: nowrap;
 }
 
-.card .sub { border-top: 1px solid var(--line-soft); margin-top: 18px; }
+/* A sub-block inside a card - the feature dump, the parameters, the ledger.
+ * Ruled off rather than boxed, because a box inside a box inside a panel is
+ * three borders competing to be the edge of something. */
+.card .sub {
+  border-top: 1px solid var(--line-soft);
+  margin-top: var(--s-5);
+  padding-top: var(--s-1);
+}
 
 blockquote {
-  margin: 0 0 16px;
-  padding: 12px 18px;
+  margin: 0 0 var(--s-4);
+  padding: var(--s-3) var(--s-4);
   background: var(--panel-2);
   border-left: 3px solid var(--accent);
-  border-radius: 0 8px 8px 0;
+  border-radius: 0 var(--r-1) var(--r-1) 0;
   color: var(--ink);
-  font-size: 16px;
+  font-size: var(--fs-lg);
   line-height: 1.6;
 }
 
 pre {
   background: var(--panel-2);
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 12px 14px;
+  border-radius: var(--r-1);
+  padding: var(--s-3) var(--s-4);
   overflow-x: auto;
   font-family: var(--mono);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: var(--fs-xs);
+  line-height: 1.55;
   color: var(--ink-2);
   margin: 0;
 }
+
+/* --- definition grids ----------------------------------------------------
+ * Label above value, never beside it. A two-column label/value layout wastes
+ * half the width on the labels and forces the values into a narrow ragged
+ * column, which is the opposite of what tabular figures are for.
+ */
 
 dl.kv {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 12px 24px;
+  gap: var(--s-3) var(--s-6);
   margin: 0;
 }
 dl.kv > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 dl.kv dt {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.08em;
   color: var(--muted);
+  font-weight: var(--w-semi);
 }
-dl.kv dd { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+dl.kv dd { margin: 0; font-size: var(--fs-base); overflow-wrap: anywhere; }
 dl.kv dd.n {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
 }
-dl.kv dd.big { font-size: 24px; letter-spacing: -0.01em; }
-
-dl.kv.features { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 9px 20px; }
-dl.kv.features dt { font-size: 11px; letter-spacing: 0.05em; }
-dl.kv.features dd { font-size: 14px; color: var(--ink-2); }
-
-/* --- policy checks: the one place colour carries meaning ---------------- */
-
-.checks td { border-bottom: 1px solid var(--line-soft); }
-.checks tr:hover { background: transparent; }
-
-.checks td.mark {
-  font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  width: 62px;
-  white-space: nowrap;
+/* .big is how a card promotes its own headline figure - the amount at risk, the
+ * recoverability score - out of the run of ordinary fields around it. */
+dl.kv dd.big {
+  font-size: var(--num-md);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--ink);
 }
 
-.checks tr.pass { background: rgba(76, 195, 138, 0.05); }
+dl.kv.features { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: var(--s-2) var(--s-5); }
+dl.kv.features dt { font-size: var(--fs-micro); letter-spacing: 0.06em; }
+dl.kv.features dd { font-size: var(--fs-sm); color: var(--ink-2); }
+
+/* --- policy checks: the one place colour carries meaning -----------------
+ * Fourteen rows, and the reader has to find the failures in one pass without
+ * reading a word. Four signals stack on a failing row - a red rail, a wash, a
+ * bold name, and the word FAIL next to a glyph - because the single thing this
+ * table must never do is let a violation read as a pass.
+ */
+
+.checks { margin-top: var(--s-2); }
+.checks td { border-bottom: 1px solid var(--line-lit); }
+.checks tr:hover { background: transparent; }
+
+/* PASS and FAIL were set a size below the rule name they judge, which puts the
+ * verdict under its own subject on a table whose entire job is delivering
+ * verdicts. Matched to the name column instead: the word is the primary signal
+ * here and the glyph and the hue are its backups, so the word is the one thing
+ * that cannot be the smallest mark in the row. */
+.checks td.mark {
+  font-family: var(--mono);
+  font-size: var(--fs-base);
+  font-weight: var(--w-bold);
+  letter-spacing: 0.1em;
+  width: 92px;
+  white-space: nowrap;
+}
+/* The glyph is generated rather than written into the template because the
+ * tests count the literal strings PASS and FAIL in the response body, and a
+ * character added to the markup is a character in somebody's grep. */
+.checks td.mark::before { margin-right: 7px; font-weight: var(--w-bold); }
+
+.checks tr.pass { background: var(--pass-wash); }
 .checks tr.pass td.mark { color: var(--pass); }
+.checks tr.pass td.mark::before { content: "\2713"; }
 .checks tr.pass td:first-child { box-shadow: inset 3px 0 0 var(--pass); }
 
-.checks tr.fail { background: rgba(242, 97, 111, 0.1); }
+.checks tr.fail { background: var(--fail-wash); }
 .checks tr.fail td.mark { color: var(--fail); }
-.checks tr.fail td:first-child { box-shadow: inset 3px 0 0 var(--fail); }
-.checks tr.fail td.name { color: var(--ink); font-weight: 600; }
+.checks tr.fail td.mark::before { content: "\2715"; }
+.checks tr.fail td:first-child { box-shadow: inset 4px 0 0 var(--fail); }
+.checks tr.fail td.name { color: var(--ink); font-weight: var(--w-semi); }
+/* The detail on a failing row is the reason the bound refused, which is the
+ * sentence a viewer actually wants. It does not get the muted treatment the
+ * other thirteen details get. */
+.checks tr.fail td.detail { color: var(--ink-2); }
 
 .fail-text { color: var(--fail); }
 
-/* --- the holdout, which is the whole argument --------------------------- */
+/* --- the holdout, which is the whole argument ---------------------------- */
 
 .holdout {
-  background: rgba(192, 143, 208, 0.09);
-  border: 1px solid rgba(192, 143, 208, 0.45);
+  background: var(--violet-wash);
+  border: 1px solid var(--violet-edge);
   border-left: 4px solid var(--violet);
-  border-radius: 10px;
-  padding: 16px 20px;
-  margin: 20px 0 6px;
+  border-radius: var(--r-2);
+  padding: var(--s-4) var(--s-5);
+  margin: var(--s-5) 0 var(--s-2);
   color: var(--ink-2);
-  font-size: 16px;
+  font-size: var(--fs-lg);
   line-height: 1.6;
   max-width: 92ch;
 }
 .holdout b { color: var(--violet); }
 
+/* The one paragraph the pitch script stops on and reads out loud, and it was
+ * the weakest of the three violet surfaces on the site: a thin rail on a tint,
+ * a size below a banner four screens away that only describes the experiment in
+ * the abstract. .holdout says a holdout exists; this says it happened, on the
+ * event on screen, to this money. So this is the strongest of the three - the
+ * heaviest rail here, a full edge rather than a rule, lede size in full ink. A
+ * viewer who reads one sentence on this page should read this one. */
 .suppressed {
-  background: rgba(192, 143, 208, 0.09);
-  border-left: 3px solid var(--violet);
-  border-radius: 0 8px 8px 0;
-  padding: 14px 18px;
+  background: var(--violet-wash);
+  border: 1px solid var(--violet-edge);
+  border-left: 5px solid var(--violet);
+  border-radius: var(--r-2);
+  padding: var(--s-4) var(--s-5);
   margin: 0;
-  color: var(--ink-2);
-  font-size: 15px;
+  color: var(--ink);
+  font-size: var(--fs-lg);
   line-height: 1.6;
 }
+.suppressed b { color: var(--violet); }
 
-/* --- narrow screens ----------------------------------------------------- */
+/* --- narrow screens ------------------------------------------------------
+ * Not a mobile design, a safety net: the demo has been opened on a laptop with
+ * a browser sidebar out and on a hall projector running 1280 wide, and neither
+ * should produce a horizontal scrollbar on the body.
+ */
+
+@media (max-width: 1150px) {
+  .cols { grid-template-columns: 1fr; }
+  .headline.split { grid-template-columns: minmax(0, 1fr); }
+  .headline-compare { border-left: 0; border-top: 1px solid var(--line); padding-left: 0; padding-top: var(--s-4); }
+  .tiles.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tiles.cols-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 @media (max-width: 900px) {
-  main, .top, footer { padding-left: 18px; padding-right: 18px; }
-  .cols { grid-template-columns: 1fr; }
+  main, .top, footer { padding-left: var(--s-4); padding-right: var(--s-4); }
+  .top { flex-wrap: wrap; gap: var(--s-3); }
+  .flags { margin-left: 0; width: 100%; }
+  .tiles, .tiles.cols-2, .tiles.cols-3, .tiles.cols-4 { grid-template-columns: 1fr; }
+  /* span-2 in a one-track grid would add an implicit second column and push the
+   * page sideways, which is a horizontal scrollbar on camera. */
+  .tile.span-2 { grid-column: auto; }
   .timeline::before, .stage::before { display: none; }
   .stage { padding-left: 0; }
-  .stage .tag { position: static; display: block; width: auto; text-align: left; margin-bottom: 6px; }
+  .stage .tag {
+    position: static;
+    display: block;
+    width: auto;
+    text-align: left;
+    margin-bottom: var(--s-2);
+  }
+  /* The spine and its numbered nodes are gone at this width, so the ordinal
+   * moves into the tag. Losing the rail is survivable; losing "this is step 4
+   * of 6" turns the replay back into six unrelated cards. */
+  .stage .tag::before { content: counter(step) " \00B7 "; color: var(--ink-2); }
   .card header { flex-wrap: wrap; }
   .card header .meta { margin-left: 0; }
 }

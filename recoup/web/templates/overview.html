@@ -226,12 +226,26 @@ details.aside .note { margin-top: var(--s-2); }
         the number above.
       </p>
     {% else %}
+      {#
+        "Nothing has been graded yet" is a claim about the whole project, and
+        this page is in no position to make it: the eval panel four screens down
+        reads a report file off disk and will happily print a full result under a
+        headline that has just said none exists. What this branch actually knows
+        is narrower - no outcome in data/recoup.db is resolved - so that is what
+        it says, and when a stored report is on screen it says why the two
+        disagree instead of leaving a judge to catch it.
+      #}
       <p class="caveat">
-        <b>Nothing has been graded yet, so there is no incremental figure to
-        report.</b>
+        <b>No outcome in the audit trail has been resolved, so there is no
+        incremental figure for this page to compute.</b>
         The dash above is deliberate. A stage that has not run and a stage that
         ran and recovered nothing are different facts, and printing Rs 0 for both
         would misrepresent the first.
+        {% if report %}
+        The eval panel below is a stored report from an earlier run, not a
+        reading of this database &mdash; which is why it still carries figures.
+        It is dated where it stands.
+        {% endif %}
       </p>
     {% endif %}
   </div>
@@ -532,8 +546,11 @@ details.aside .note { margin-top: var(--s-2); }
     <h2>Eval harness</h2>
     {% if report %}
     <p class="head-sub">
-      The grader's own numbers, weighted by event rather than by rupee. This is
-      where the confidence interval at the top of the page comes from.
+      The grader's own numbers, weighted by event rather than by rupee.
+      {% if ov and ov.has_outcomes and ci %}This is where the confidence interval
+      at the top of the page comes from.{% else %}It is read from a report file,
+      so it can carry figures the current database cannot reproduce &mdash; the
+      timestamp beside it says which run wrote them.{% endif %}
     </p>
     <span class="head-aside"><code>{{ report.path.name }}</code> &middot; {{ report.modified_at|ist }}</span>
     {% endif %}
@@ -544,11 +561,22 @@ details.aside .note { margin-top: var(--s-2); }
   {% set head = report.headline() %}
   {% if head %}
   <h3>the report's own headline</h3>
+  {#
+    The same two figures as the top of the page, and they have to rank the same
+    way here or the page argues with itself four screens down. app.css already
+    ships the ranking - .key for the figure a row is about, .muted for the one
+    shown so it cannot be accused of being hidden - and this row was using
+    neither, printing gross and incremental as equals. Keyed by label rather
+    than by position, so a grader that stops emitting one of them demotes the
+    row instead of promoting whatever landed in that slot.
+  #}
   <section class="tiles small">
     {% for label, value in head.items() %}
-    <div class="tile">
+    <div class="tile{{ ' key' if label == 'incremental' else (' muted' if label == 'gross' else '') }}">
       <span class="k">{{ label|humanise }}</span>
       <span class="v">{{ value|rupees }}</span>
+      {% if label == 'gross' %}<span class="s">what a tool without a holdout would report</span>{% endif %}
+      {% if label == 'incremental' %}<span class="s">the only figure this project claims</span>{% endif %}
     </div>
     {% endfor %}
   </section>
@@ -559,7 +587,8 @@ details.aside .note { margin-top: var(--s-2); }
     <h3 id="sweep">sensitivity sweep</h3>
     <p class="head-sub">
       Each row is the same run re-resolved under a different set of lift
-      assumptions, carrying its own interval.
+      assumptions, carrying its own interval. Lift is in percentage points: it is
+      one recovery rate subtracted from another, not a percentage of anything.
     </p>
   </div>
   <div class="scroll">
@@ -571,22 +600,42 @@ details.aside .note { margin-top: var(--s-2); }
         <th class="n">cannibalised</th>
         <th class="n">cost</th>
         <th class="n">net</th>
-        <th class="n">lift</th>
-        <th class="n">95% interval</th>
+        <th class="n">lift (pp)</th>
+        <th class="n">95% interval (pp)</th>
       </tr>
     </thead>
     <tbody>
+      {#
+        Every figure in these two columns is a difference between two recovery
+        rates, which makes it percentage points and never a percentage. "27.4%
+        gross against a 7.5% lift" invites exactly one arithmetic - that the
+        holdout accounts for the other 19.9% of something - and it is the wrong
+        one. The suffix is the cheapest possible fix and the caveat beside the
+        headline already reads pp, so this column was the odd one out.
+
+        Zeroed inside half a display step of zero, the same guard the headline
+        interval carries: a sweep point of -0.02pp printed as "-0.0pp", which is
+        not a number and looks like a rendering fault on the one row a sceptic
+        reads hardest.
+      #}
       {% for point in sweep %}
+      {% set lift_pp = none if point.lift is none else (0.0 if (point.lift * 100)|abs < 0.05 else (point.lift * 100)|round(1)) %}
+      {% set lo_pp = none if point.ci_low is none else (0.0 if (point.ci_low * 100)|abs < 0.05 else (point.ci_low * 100)|round(1)) %}
+      {% set hi_pp = none if point.ci_high is none else (0.0 if (point.ci_high * 100)|abs < 0.05 else (point.ci_high * 100)|round(1)) %}
       <tr>
         <td>{{ point.label }}</td>
         <td class="n">{{ point.incremental_paise|rupees }}</td>
         <td class="n">{{ point.cannibalised_paise|rupees }}</td>
         <td class="n">{{ point.cost_paise|rupees }}</td>
         <td class="n strong">{{ point.net_paise|rupees }}</td>
-        <td class="n">{{ point.lift|pct }}</td>
+        <td class="n">
+          {%- if lift_pp is not none -%}
+            {{ "+" if lift_pp > 0 else "" }}{{ lift_pp }}pp
+          {%- else -%}&mdash;{%- endif -%}
+        </td>
         <td class="n {{ 'crosses' if point.crosses_zero else 'dim' }}">
-          {%- if point.ci_low is not none -%}
-            {{ point.ci_low|pct }} to {{ point.ci_high|pct }}{{ " *" if point.crosses_zero else "" }}
+          {%- if lo_pp is not none -%}
+            {{ "+" if lo_pp > 0 else "" }}{{ lo_pp }}pp to {{ "+" if hi_pp > 0 else "" }}{{ hi_pp }}pp{{ " *" if point.crosses_zero else "" }}
           {%- endif -%}
         </td>
       </tr>

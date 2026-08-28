@@ -3,6 +3,166 @@
 
 {% block content %}
 
+{#
+  Page-scoped CSS. Two things need it and neither generalises: the filter bar
+  has to report its own state, and this table stacks three of its cells to stay
+  inside one screen width. Nothing here belongs in app.css - the other three
+  pages would carry rules they never match.
+#}
+<style>
+/* --- the filter bar ------------------------------------------------------
+ * The shared .filters component paints a set control and an unset one exactly
+ * alike. That is survivable in a browser, where the select shows its value if
+ * you go and look, and not survivable on video: a viewer who arrives after the
+ * click sees a shorter table and has no way to know whether it is the control
+ * arm or the whole population. So an applied filter is lit three times - at
+ * the label, at the control, and again as a removable chip on a second row of
+ * the same panel.
+ */
+.filters label.on { color: var(--accent); }
+.filters label.on select {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  color: var(--ink);
+}
+
+/* The state lives inside the same border as the switches that produced it. Two
+ * separate boxes would read as "a form to fill in" above "a caption"; one box
+ * reads as an instrument that is currently set to something. */
+.applied {
+  flex: 1 0 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+  margin-top: var(--s-1);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
+}
+.applied-k {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-weight: var(--w-semi);
+  color: var(--muted);
+}
+.applied-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-family: var(--mono);
+  font-size: var(--fs-md);
+  color: var(--ink);
+  background: var(--accent-wash);
+  border: 1px solid var(--accent-edge);
+  border-radius: var(--r-pill);
+  padding: var(--s-1) var(--s-1) var(--s-1) var(--s-3);
+}
+.applied-chip:hover { text-decoration: none; border-color: var(--accent); }
+/* 13px and not the 11px the label would take in a dense dump: this chip is the
+ * thing a viewer squints at to check what the table is currently showing, and
+ * it is read off a recording rather than off a monitor. */
+.applied-chip .key {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+/* The cross is what makes the chip a control rather than a caption. It is a
+ * filled disc and not a bare glyph because a loose x beside a value reads as
+ * part of the value once the capture has been downscaled. */
+.applied-chip .x {
+  display: inline-grid;
+  place-items: center;
+  width: var(--s-5);
+  height: var(--s-5);
+  border-radius: 50%;
+  background: var(--accent-edge);
+  color: #0b0f16;
+  font-size: var(--fs-xs);
+  font-weight: var(--w-bold);
+}
+.applied-chip:hover .x { background: var(--accent); }
+.applied-clear { margin-left: auto; font-size: var(--fs-sm); color: var(--muted); }
+.applied-clear:hover { color: var(--ink); }
+
+/* --- the table -----------------------------------------------------------
+ * Three cells carry a fact over its qualifier rather than beside it: the
+ * identifier over when it happened, the failure code over whose payment it
+ * was, the proposed action over who proposed it. Two reasons.
+ *
+ * Width. Spread across twelve columns these overflow the 1496px of content a
+ * 1560px page leaves, and the table scrolls sideways - a column you have to
+ * scroll to is a column nobody watching a recording will ever see. The worst
+ * offender is real: `international_transaction_not_allowed` is 36 characters
+ * of monospace, three hundred pixels, and it is a genuine reason code that
+ * turns up on any page of fifty.
+ *
+ * Scanning. Every cell's first line is the primary fact and every second line
+ * is subordinate, so reading straight across the top line of a row gives the
+ * whole event and the qualifiers stay out of the way until you want them.
+ */
+.events td .under {
+  display: block;
+  margin-top: var(--s-1);
+  /* Reset explicitly: the qualifier sits inside cells that have set their own
+   * face - the reason cell is monospaced - and a customer's name rendered in
+   * the same mono as the failure code above it reads as more code. */
+  font-family: var(--sans);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--muted);
+}
+.events td .under.n { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* Nine columns of it. The shared 12px gutter on both sides of every cell is
+ * 216px of the width, which is the difference between fitting and scrolling;
+ * the vertical padding stays untouched, so rows keep their air where the eye
+ * actually needs it. */
+.events td { padding-left: var(--s-2); padding-right: var(--s-2); }
+.events th { padding-left: var(--s-2); padding-right: var(--s-2); }
+
+/* The identifier cell is the link, not the identifier inside it. Fourteen
+ * characters of 14px mono is a 118x20 target; hitting that with a trackpad in
+ * front of a room is a retake. The anchor takes over the cell's padding, so
+ * the target is the full height and width of the cell instead. */
+.events td.pick { padding: 0; position: relative; }
+.events td.pick a {
+  display: block;
+  padding: var(--s-3) var(--s-5) var(--s-3) var(--s-2);
+  color: var(--ink);
+}
+.events td.pick a:hover { text-decoration: none; }
+.events td.pick .id { font-family: var(--mono); font-size: var(--fs-sm); color: var(--accent); }
+.events td.pick a:hover .id { text-decoration: underline; }
+/* A chevron on hover. The row is a link and nothing else in it says so; the
+ * underline alone sits on fourteen characters of hash at the far left. */
+.events td.pick a::after {
+  content: "\203A";
+  position: absolute;
+  right: var(--s-3);
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: var(--fs-xl);
+  line-height: 1;
+  color: var(--accent);
+  opacity: 0;
+}
+.events tbody tr:hover td.pick a::after { opacity: 1; }
+
+.events td.reason { font-family: var(--mono); font-size: var(--fs-sm); color: var(--ink-2); }
+
+/* The order of this table is an argument - the first screen is the money - and
+ * the sentence that says so is one scroll above. Marking the column the sort
+ * runs on keeps the fact next to the figures for anyone arriving mid-scroll. */
+.events th.sorted { color: var(--accent); }
+
+/* Applied by the script at the bottom, never in the markup. A pointer cursor
+ * on a row that does nothing when clicked is a worse lie than a small target,
+ * so the affordance appears only once the behaviour does. */
+.events tbody.clickable tr { cursor: pointer; }
+</style>
+
 <h1>Events</h1>
 <p class="lede">
   Sorted by expected value, descending &mdash; the first screen is the money.
@@ -17,8 +177,28 @@
   {% include "_empty.html" %}
 {% else %}
 
+{#
+  Every applied filter as (query key, what to call it, its value, how to print
+  it). Built once and used twice: to light up the control that set it, and to
+  render a chip whose href is the same query with this one key dropped. One
+  list, so a filter cannot appear in one place and not the other.
+#}
+{%- set chips = [] -%}
+{%- if filters.cohort -%}
+  {%- set _ = chips.append(("cohort", "arm", filters.cohort.value, filters.cohort.value)) -%}
+{%- endif -%}
+{%- if filters.status -%}
+  {%- set _ = chips.append(("status", "status", filters.status.value, filters.status.value|humanise)) -%}
+{%- endif -%}
+{%- if filters.reason -%}
+  {%- set _ = chips.append(("reason", "reason", filters.reason, filters.reason)) -%}
+{%- endif -%}
+{%- if filters.verdict -%}
+  {%- set _ = chips.append(("verdict", "policy", filters.verdict.value, filters.verdict.value)) -%}
+{%- endif -%}
+
 <form class="filters" method="get" action="/events">
-  <label>cohort
+  <label class="{{ 'on' if filters.cohort else '' }}">cohort
     <select name="cohort">
       <option value="">any</option>
       {% for c in cohorts %}
@@ -26,7 +206,7 @@
       {% endfor %}
     </select>
   </label>
-  <label>status
+  <label class="{{ 'on' if filters.status else '' }}">status
     <select name="status">
       <option value="">any</option>
       {% for s in statuses %}
@@ -34,7 +214,7 @@
       {% endfor %}
     </select>
   </label>
-  <label>reason
+  <label class="{{ 'on' if filters.reason else '' }}">reason
     <select name="reason">
       <option value="">any</option>
       {% for code in reason_codes %}
@@ -42,7 +222,7 @@
       {% endfor %}
     </select>
   </label>
-  <label>policy verdict
+  <label class="{{ 'on' if filters.verdict else '' }}">policy verdict
     <select name="verdict">
       <option value="">any</option>
       {% for v in verdicts %}
@@ -51,8 +231,28 @@
     </select>
   </label>
   <button type="submit">apply</button>
-  {% if filters.active %}<a class="clear" href="/events">clear</a>{% endif %}
-  <span class="count">{{ total }} event{{ '' if total == 1 else 's' }}</span>
+  <span class="count">
+    <b>{{ total }}</b> event{{ '' if total == 1 else 's' }}{{ ' match' if filters.active else '' }}
+  </span>
+
+  {% if chips %}
+  <div class="applied">
+    <span class="applied-k">showing only</span>
+    {% for key, label, value, shown in chips %}
+      {#- the same query minus this key: a chip you click to take it off again -#}
+      {%- set rest = [] -%}
+      {%- for other_key, _l, other_value, _s in chips if other_key != key -%}
+        {%- set _ = rest.append(other_key ~ "=" ~ other_value|urlencode) -%}
+      {%- endfor -%}
+      <a class="applied-chip"
+         href="/events{% if rest %}?{{ rest|join('&') }}{% endif %}"
+         title="stop filtering by {{ label }}">
+        <span class="key">{{ label }}</span>{{ shown }}<span class="x" aria-hidden="true">&times;</span>
+      </a>
+    {% endfor %}
+    <a class="applied-clear" href="/events">clear all filters</a>
+  </div>
+  {% endif %}
 </form>
 
 {% if not rows %}
@@ -63,48 +263,77 @@
 {% else %}
 
 <div class="scroll">
-<table class="grid rows">
+<table class="grid rows events">
   <thead>
     <tr>
-      <th>event</th>
-      <th>occurred</th>
-      <th>customer</th>
-      <th>reason</th>
+      <th>event &middot; occurred</th>
+      <th>reason &middot; customer</th>
       <th>arm</th>
       <th class="n">amount</th>
-      <th class="n">recov.</th>
-      <th class="n">expected value</th>
-      <th>action</th>
-      <th>by</th>
+      <th class="n">recoverability</th>
+      <th class="n sorted">expected value &darr;</th>
+      <th>action &middot; by</th>
       <th>policy</th>
-      <th>outcome</th>
+      <th>outcome &middot; status</th>
     </tr>
   </thead>
-  <tbody>
+  {#
+    The row carries its destination as data, and the first cell carries the one
+    real anchor. A second <a> to the same event would be a second tab stop and
+    a duplicate announcement for anyone on a screen reader, for no gain - and
+    tests/test_api.py counts the literal href="/events/evt_ to prove the page
+    renders fifty rows rather than fifty-one, which an attribute named
+    data-href would silently double.
+  #}
+  <tbody id="event-rows">
     {% for row in rows %}
-    <tr>
-      <td><a class="mono" href="/events/{{ row.event.id }}">{{ row.event.id|sid }}</a></td>
-      <td class="dim">{{ row.event.occurred_at|ist_short }}</td>
-      <td>{{ row.event.customer.name if row.event.customer else "—" }}</td>
-      <td><span class="mono">{{ row.event.reason_code }}</span></td>
+    <tr data-open="/events/{{ row.event.id }}">
+      <td class="pick">
+        <a href="/events/{{ row.event.id }}">
+          <span class="id">{{ row.event.id|sid }}</span>
+          <span class="under">{{ row.event.occurred_at|ist_short }}</span>
+        </a>
+      </td>
+      <td class="reason">
+        {{ row.event.reason_code }}
+        <span class="under">{{ row.event.customer.name if row.event.customer else "—" }}</span>
+      </td>
       <td><span class="pill c-{{ row.event.cohort.value }}">{{ row.event.cohort.value }}</span></td>
       <td class="n">{{ row.event.amount_paise|rupees }}</td>
       <td class="n">{{ row.assessment.recoverability|pct if row.assessment else "—" }}</td>
       <td class="n strong">{{ row.assessment.expected_value_paise|rupees if row.assessment else "—" }}</td>
-      <td>{{ row.decision.action_type.value|humanise if row.decision else "—" }}</td>
       <td>
-        {% if row.decision %}<span class="pill s-{{ row.decision.source.value }}">{{ row.decision.source.value }}</span>{% endif %}
+        {% if row.decision %}
+          {{ row.decision.action_type.value|humanise }}
+          <span class="under">
+            <span class="pill s-{{ row.decision.source.value }}">{{ row.decision.source.value }}</span>
+          </span>
+        {% else %}
+          <span class="dim">&mdash;</span>
+        {% endif %}
       </td>
       <td>
         {% if row.review %}<span class="pill v-{{ row.review.verdict.value }}">{{ row.review.verdict.value }}</span>{% endif %}
       </td>
       <td>
+        {#
+          An event that resolved and one that has not are different facts, and
+          the blank cell this used to print said neither - which on a database
+          where nothing has settled yet leaves six hundred empty cells under a
+          column heading, reading as a query that failed. Where there is no
+          outcome the lifecycle status is the honest answer to "and then what":
+          suppressed, awaiting approval and acted are three different places to
+          have stopped, and none of them is "lost".
+        #}
         {% if row.outcome %}
           {% if row.outcome.recovered %}
-            <span class="ok">recovered</span> <span class="dim">{{ row.outcome.recovered_paise|rupees }}</span>
+            <span class="ok">recovered</span>
+            <span class="under n">{{ row.outcome.recovered_paise|rupees }}</span>
           {% else %}
             <span class="dim">lost</span>
           {% endif %}
+        {% else %}
+          <span class="dim">{{ row.event.status.value|humanise }}</span>
         {% endif %}
       </td>
     </tr>
@@ -120,6 +349,29 @@
   {% if next_url %}<a href="{{ next_url }}">next &rarr;</a>{% else %}<span class="dim">next &rarr;</span>{% endif %}
 </nav>
 {% endif %}
+
+{#
+  Progressive enhancement, and nothing else: every row already has a working
+  link in its first cell and this page is complete without a line of script.
+  All the handler does is widen that link to the width of the row, which is
+  what a presenter clicking at speed on camera expects to be able to do. The
+  cursor is added from here rather than in the stylesheet so the affordance
+  cannot appear without the behaviour behind it.
+#}
+<script>
+  (function () {
+    var body = document.getElementById("event-rows");
+    if (!body) return;
+    body.classList.add("clickable");
+    body.addEventListener("click", function (event) {
+      /* A real link, or a drag that selected text, is not a row click. */
+      if (event.target.closest("a")) return;
+      if (window.getSelection && String(window.getSelection())) return;
+      var row = event.target.closest("tr[data-open]");
+      if (row) window.location.assign(row.getAttribute("data-open"));
+    });
+  })();
+</script>
 
 {% endif %}
 {% endif %}

@@ -3,32 +3,76 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  {# Tells the browser to paint form controls, scrollbars and the canvas dark
+     before the stylesheet lands. Without it the first frame of a screen
+     recording is a white flash, which is the worst possible opening shot. #}
+  <meta name="color-scheme" content="dark">
   <title>{% block title %}Recoup{% endblock %}</title>
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
 
+<a class="skip" href="#content">skip to content</a>
+
 <header class="top">
   <a class="brand" href="/">recoup</a>
-  <nav>
-    <a href="/" class="{{ 'on' if active == 'overview' else '' }}">overview</a>
-    <a href="/events" class="{{ 'on' if active == 'events' else '' }}">events</a>
-    <a href="/policy" class="{{ 'on' if active == 'policy' else '' }}">policy</a>
+
+  {# aria-current as well as the .on class: the highlight is what a viewer sees,
+     the attribute is what a screen reader announces, and neither is a
+     substitute for the other. #}
+  <nav aria-label="Sections">
+    <a href="/"
+       class="{{ 'on' if active == 'overview' else '' }}"
+       {% if active == 'overview' %}aria-current="page"{% endif %}>overview</a>
+    <a href="/events"
+       class="{{ 'on' if active == 'events' else '' }}"
+       {% if active == 'events' %}aria-current="page"{% endif %}>events</a>
+    <a href="/policy"
+       class="{{ 'on' if active == 'policy' else '' }}"
+       {% if active == 'policy' %}aria-current="page"{% endif %}>policy</a>
   </nav>
+
+  {#
+    Two indicators, both stating the current state of the run rather than
+    decorating the bar.
+
+    The execution mode is rendered in both directions on purpose. Previously the
+    "dry run" chip appeared when dry_run was set and nothing appeared when it
+    was not, which makes the dangerous state the invisible one: a viewer cannot
+    tell an armed executor from a page that forgot to render its badge. Live is
+    amber, dry is calm blue. Green and red are reserved for policy verdicts and
+    do not appear in the chrome at all.
+
+    The bounds count is the standing claim this whole dashboard defends - every
+    decision goes through all of them, every time - so it sits next to the mode
+    it constrains instead of being buried on /policy.
+  #}
   <div class="flags">
-    {% if dry_run %}<span class="flag">dry run</span>{% endif %}
-    <span class="flag">{{ bound_count }} bounds &middot; {{ rule_count }} checks</span>
+    {% if dry_run %}
+    <span class="flag mode-dry" title="No Razorpay calls are made. Actions are recorded, not sent.">
+      <span class="dot" aria-hidden="true"></span>dry run &middot; nothing is sent
+    </span>
+    {% else %}
+    <span class="flag mode-live" title="The executor places real Razorpay calls.">
+      <span class="dot" aria-hidden="true"></span>live &middot; calls are real
+    </span>
+    {% endif %}
+    <span class="flag bounds" title="Every decision is evaluated against all of them, with no short-circuiting.">
+      <span class="dot" aria-hidden="true"></span>{{ bound_count }} bounds &middot; {{ rule_count }} checks, every decision
+    </span>
   </div>
 </header>
 
-<main>
+<main id="content">
 {% block content %}{% endblock %}
 </main>
 
 <footer>
-  Figures are computed from the audit trail in <code>data/recoup.db</code>.
-  Decision quality is real; the rupee outcomes are simulated and the README says
-  so at length.
+  <p>
+    Figures are computed from the audit trail in <code>data/recoup.db</code>.
+    Decision quality is real; the rupee outcomes are simulated and the README says
+    so at length.
+  </p>
 </footer>
 
 </body>
