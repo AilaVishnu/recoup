@@ -526,6 +526,18 @@ structurally impossible rather than merely intended.
 
 With Gemini deciding the 161 events the taxonomy could not settle on its own:
 
+> **These model-comparison figures are stale and are not reproducible on the
+> current code.** They were measured before the taxonomy was rewritten, on a
+> dataset containing invented reason codes and card failures dealt to UPI
+> payments. The re-run is blocked on a free-tier quota: a 600-event pipeline
+> escalates ~150 events to the model, and Google's free allowance for this model
+> is smaller than that, so the second run of the day returns 429 for nearly all
+> of them.
+>
+> The taxonomy-only figures above are unaffected — they need no key and
+> reproduce exactly from a clean clone. Treat everything in this section as an
+> observation from an earlier build rather than a current measurement.
+
 | | Taxonomy only | With the model |
 |---|---|---|
 | Incremental lift | **+7.2pp** | **+6.8pp** |
@@ -554,6 +566,22 @@ table.
 That is the measurement this project exists to be able to make. A recovery
 system that cannot tell you whether its most expensive component earns its place
 is not measuring anything.
+
+### What the quota exhaustion actually demonstrated
+
+Worth recording, because it is the graceful-degradation path running for real
+rather than in a test. On the blocked run, 147 of 148 escalated events came back
+`429`, and **every one of them still got a decision** — the taxonomy answered,
+the fallback recorded itself as `RULES` rather than `LLM`, and the audit trail
+carried "model rate-limited" on each. The pipeline completed. No event was left
+undecided and no number was silently inflated by counting a fallback as a model
+call.
+
+It also sets an operational bound worth knowing: **a free tier is not enough to
+run this pipeline daily.** ~150 model calls per 600-event run, against a free
+allowance well below that. `RECOUP_LLM_RPM` paces within a minute; it cannot
+manufacture a quota. A real deployment needs a paid tier or a much narrower
+routing rule.
 
 ---
 

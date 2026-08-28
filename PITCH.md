@@ -160,9 +160,14 @@ is a bad five minutes, and it is avoidable.
 
 ## 4:40 – 5:10 · The model didn't win, and I can prove it
 
-> Last thing. I gave Gemini the 161 events the taxonomy couldn't settle. It spent
-> **six thousand rupees** on discounts and came back with **six point eight
-> points of lift, where the lookup table alone got seven point two.**
+> Last thing. I gave Gemini the events the taxonomy couldn't settle. It spent
+> about six thousand rupees on discounts and came back with **slightly less lift
+> than the lookup table alone.**
+>
+> *(Say the exact figures only if you have re-run the comparison — the ones in
+> the repo predate the taxonomy rewrite and the free-tier quota blocked the
+> re-run. If you haven't, say "slightly less" and move on; do not quote numbers
+> you cannot reproduce on camera.)*
 >
 > That difference is a fraction of the error bar, so I'm not claiming the model
 > made it worse. What I'm claiming is that I can *tell* — and cannibalisation came
