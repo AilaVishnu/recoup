@@ -148,7 +148,11 @@ def score_event(
 
     return Score(
         recoverability=round(p, 4),
-        expected_value_paise=int(p * event.amount_paise),
+        # From the feature dict, not the column. features.extract() coerces
+        # nullable columns to their schema defaults at the boundary; reading the
+        # raw attribute here reintroduced the crash that coercion exists to
+        # prevent, two lines after the value had already been sanitised.
+        expected_value_paise=int(p * f["amount_paise"]),
         strategy=profile.strategy,
         earliest_action_at=max(earliest, event.occurred_at),
         features=f,

@@ -85,19 +85,48 @@ def is_quiet_hours(dt: datetime) -> bool:
     return hour >= 21 or hour < 8
 
 
+def _int(value: Any, default: int) -> int:
+    """Coerce a nullable column to an int, at the boundary rather than in the maths.
+
+    SQLAlchemy column defaults apply on insert, not on an unflushed object, and a
+    row written by any other path can carry NULL regardless. Either way the value
+    reaches the scorer as None and the first comparison against it raises.
+
+    That mattered more than it looks. `assess()` is called outside the pipeline's
+    try/except - the orchestrator guards execution, not scoring - so a single
+    event with a null attempt_no killed an entire 600-event run with a TypeError
+    about NoneType, several frames from anything that would have suggested why.
+    The policy engine was hardened against exactly this shape of input and the
+    scorer was not.
+    """
+    if value is None or isinstance(value, bool):
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def extract(event: RevenueEvent, customer: Customer, now: datetime) -> dict[str, Any]:
-    """Build the feature dictionary for one event."""
+    """Build the feature dictionary for one event.
+
+    Nullable inputs are coerced to their schema defaults here, at the boundary, so
+    that everything downstream can do arithmetic without guarding. A feature the
+    scorer cannot compute becomes a defensible default rather than a stack trace.
+    """
     profile = profile_for(event.reason_code)
+    attempt_no = _int(event.attempt_no, 1)
+    amount_paise = _int(event.amount_paise, 0)
+    prior_success = _int(customer.prior_success_count, 0)
+    prior_failure = _int(customer.prior_failure_count, 0)
+    prior_recovery = _int(customer.prior_recovery_count, 0)
+    lifetime_value = _int(customer.lifetime_value_paise, 0)
     age_hours = max(0.0, (now - event.occurred_at).total_seconds() / 3600.0)
 
-    attempts = customer.prior_success_count + customer.prior_failure_count
-    historical_success_rate = (
-        customer.prior_success_count / attempts if attempts else 0.5
-    )
+    attempts = prior_success + prior_failure
+    historical_success_rate = prior_success / attempts if attempts else 0.5
     historical_recovery_rate = (
-        customer.prior_recovery_count / customer.prior_failure_count
-        if customer.prior_failure_count
-        else 0.0
+        prior_recovery / prior_failure if prior_failure else 0.0
     )
 
     ist = to_ist(event.occurred_at)
@@ -114,23 +143,23 @@ def extract(event: RevenueEvent, customer: Customer, now: datetime) -> dict[str,
         "retry_after_minutes": profile.retry_after_minutes,
         "switch_rails": [r.value for r in profile.switch_to],
         # --- the money ---
-        "amount_paise": event.amount_paise,
-        "amount_inr": round(event.amount_paise / 100, 2),
-        "is_high_value": event.amount_paise >= 25_000_00,
+        "amount_paise": amount_paise,
+        "amount_inr": round(amount_paise / 100, 2),
+        "is_high_value": amount_paise >= 25_000_00,
         # --- who this is ---
         "customer_tenure_days": max(0, (now - customer.created_at).days),
-        "prior_success_count": customer.prior_success_count,
-        "prior_failure_count": customer.prior_failure_count,
-        "prior_recovery_count": customer.prior_recovery_count,
+        "prior_success_count": prior_success,
+        "prior_failure_count": prior_failure,
+        "prior_recovery_count": prior_recovery,
         "historical_success_rate": round(historical_success_rate, 3),
         "historical_recovery_rate": round(historical_recovery_rate, 3),
-        "lifetime_value_inr": round(customer.lifetime_value_paise / 100, 2),
-        "is_repeat_customer": customer.prior_success_count > 3,
+        "lifetime_value_inr": round(lifetime_value / 100, 2),
+        "is_repeat_customer": prior_success > 3,
         # --- the attempt ---
         "rail": event.rail,
         "preferred_rail": customer.preferred_rail,
         "rail_is_preferred": event.rail == customer.preferred_rail,
-        "attempt_no": event.attempt_no,
+        "attempt_no": attempt_no,
         # --- timing ---
         "event_age_hours": round(age_hours, 2),
         "occurred_hour_ist": ist.hour,
