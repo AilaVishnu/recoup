@@ -38,6 +38,8 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+import time
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
@@ -281,6 +283,46 @@ def missing_key_note() -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# Pacing
+# ---------------------------------------------------------------------------
+
+_last_call_at = 0.0
+_throttle_lock = threading.Lock()
+
+
+def _throttle() -> None:
+    """Wait, if needed, so calls stay under the configured requests-per-minute.
+
+    Deliberately proactive rather than reactive. The 429 handler below does not
+    sleep and retry - a rate limit hit mid-batch means the whole batch is about
+    to hit the same wall, so waiting there turns one slow event into a slow run.
+    That reasoning holds, and it is exactly why the limit has to be respected
+    *before* the request rather than after the rejection.
+
+    The cost of not doing this was concrete: on the first live run against a free
+    tier, 140 of 161 escalated events came back 429 and degraded to the taxonomy.
+    Nothing was wrong - the fallback did its job and every event still got a
+    decision - but the LLM share in the report measured the rate limiter rather
+    than the routing rule, which makes it a number about the wrong thing.
+
+    Locked because the executor is sequential today and may not always be; an
+    unsynchronised timestamp would let two threads both decide it was their turn.
+    """
+    rpm = config.get_settings().llm_requests_per_minute
+    if rpm <= 0:
+        return
+
+    interval = 60.0 / rpm
+    global _last_call_at
+    with _throttle_lock:
+        wait = _last_call_at + interval - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _last_call_at = time.monotonic()
+
+
 def call(system: str, user: str, schema: dict[str, Any], max_tokens: int) -> ModelReply:
     """Ask the configured provider for one structured proposal."""
+    _throttle()
     return _ADAPTERS[active_provider()](system, user, schema, max_tokens)

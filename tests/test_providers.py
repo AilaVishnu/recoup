@@ -181,3 +181,66 @@ def test_response_format_negotiation_starts_strict_and_degrades():
     assert formats[0]["type"] == "json_schema"
     assert formats[1]["type"] == "json_object"
     assert formats[-1] is None, "the last resort must be an unconstrained request"
+
+
+# ---------------------------------------------------------------------------
+# Pacing
+# ---------------------------------------------------------------------------
+
+
+def test_pacing_is_off_by_default(monkeypatch):
+    """An unset RPM must not introduce latency into a paid-tier run."""
+    monkeypatch.setattr(
+        providers.config,
+        "get_settings",
+        lambda: SimpleNamespace(llm_requests_per_minute=0),
+    )
+    slept: list[float] = []
+    monkeypatch.setattr(providers.time, "sleep", lambda s: slept.append(s))
+    providers._throttle()
+    providers._throttle()
+    assert slept == []
+
+
+def test_pacing_waits_between_calls_when_configured(monkeypatch):
+    """The second call inside the interval must wait, not fire.
+
+    Without this, a free-tier run answers a handful of events and rate-limits the
+    rest - and the reported LLM share becomes a measure of the rate limiter
+    rather than of the routing rule.
+    """
+    monkeypatch.setattr(
+        providers.config,
+        "get_settings",
+        lambda: SimpleNamespace(llm_requests_per_minute=10),  # 6s apart
+    )
+    clock = {"t": 1000.0}
+    slept: list[float] = []
+    monkeypatch.setattr(providers.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(providers.time, "sleep", lambda s: slept.append(s))
+    monkeypatch.setattr(providers, "_last_call_at", 0.0)
+
+    providers._throttle()          # first call, nothing to wait for
+    assert slept == []
+
+    providers._throttle()          # immediately after: must wait ~6s
+    assert slept and abs(slept[0] - 6.0) < 0.01
+
+
+def test_pacing_does_not_wait_once_the_interval_has_passed(monkeypatch):
+    """Pacing is a floor on spacing, not a fixed delay per call."""
+    monkeypatch.setattr(
+        providers.config,
+        "get_settings",
+        lambda: SimpleNamespace(llm_requests_per_minute=10),
+    )
+    clock = {"t": 1000.0}
+    slept: list[float] = []
+    monkeypatch.setattr(providers.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(providers.time, "sleep", lambda s: slept.append(s))
+    monkeypatch.setattr(providers, "_last_call_at", 0.0)
+
+    providers._throttle()
+    clock["t"] += 30.0             # well past the 6s interval
+    providers._throttle()
+    assert slept == []

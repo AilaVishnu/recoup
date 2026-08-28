@@ -54,6 +54,17 @@ class Settings(BaseSettings):
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
 
+    llm_api_key_direct: str = Field(default="", alias="RECOUP_LLM_API_KEY")
+    """Provider-neutral key, and the one the .env template uses.
+
+    OPENAI_API_KEY is a wire-protocol name, not a vendor name - Gemini, Groq and
+    OpenRouter all speak that protocol and all want their own key in it. Asking
+    someone to paste a Google key into a variable called OPENAI_API_KEY is a
+    reasonable thing to hesitate over, and hesitating over your own config is
+    friction the project put there. The vendor-specific names still work, so an
+    existing .env keeps running.
+    """
+
     llm_provider: str = Field(default="", alias="RECOUP_LLM_PROVIDER")
     """anthropic | openai. Empty means anthropic.
 
@@ -65,6 +76,20 @@ class Settings(BaseSettings):
     """
 
     llm_base_url: str = Field(default="", alias="RECOUP_LLM_BASE_URL")
+
+    llm_requests_per_minute: int = Field(default=0, alias="RECOUP_LLM_RPM")
+    """Client-side pacing for the decision model. 0 = unpaced.
+
+    Free tiers are rate-limited in requests per minute, and a batch run fires as
+    fast as it can. On a first live run against Gemini's free tier, 140 of 161
+    escalated events came back 429 and fell back to the taxonomy - so the model
+    answered 21 events while the router had selected 161, and the reported LLM
+    share was a measure of the rate limiter rather than of the routing rule.
+
+    Pacing prevents the 429 instead of reacting to it, which is the right shape:
+    the fallback exists for failures worth falling back from, not for a limit
+    that was knowable in advance.
+    """
     llm_model_override: str = Field(default="", alias="RECOUP_LLM_MODEL")
 
     db_url: str = Field(default="sqlite:///data/recoup.db", alias="RECOUP_DB_URL")
@@ -107,7 +132,9 @@ class Settings(BaseSettings):
     @property
     def llm_api_key(self) -> str:
         """The key for whichever provider is active, or "" if it is a placeholder."""
-        if (self.llm_provider or "anthropic").strip().lower() == "openai":
+        if self.llm_api_key_direct:
+            key = self.llm_api_key_direct
+        elif (self.llm_provider or "anthropic").strip().lower() == "openai":
             key = self.openai_api_key
         else:
             key = self.anthropic_api_key
