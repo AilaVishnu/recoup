@@ -63,7 +63,7 @@ near 0.4, the 95% interval on the difference is about +/- 25 percentage points,
 which is wider than any effect this system could plausibly produce. Printing a
 point estimate there without a flag invites a reader to believe a number that
 the data cannot support, and reason-code segments are small by construction:
-fraud_suspected is 1.5% of the mix.
+payment_risk_check_failed is 1.5% of the mix.
 """
 
 

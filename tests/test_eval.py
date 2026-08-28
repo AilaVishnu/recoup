@@ -226,17 +226,17 @@ def test_an_action_that_cannot_be_dated_earns_neither_credit_nor_blame():
 def test_acting_can_destroy_a_recovery_and_that_is_reported():
     """Discounting a technical failure earns the wrong-action penalty.
 
-    issuer_down would have recovered on its own; a nudge is not a retry, so the
+    bank_not_available would have recovered on its own; a nudge is not a retry, so the
     world model pushes the probability below the roll and the event is lost.
     """
     nudge = ExecutedAction(
         action_type=ActionType.NUDGE.value,
         executed_at=OCCURRED + timedelta(hours=3),
     )
-    o = resolve(roll=0.29, organic_p=0.30, reason_code="issuer_down", action=nudge)
+    o = resolve(roll=0.29, organic_p=0.30, reason_code="bank_not_available", action=nudge)
     assert not o.recovered
     assert o.harmed
-    assert resolve(roll=0.29, organic_p=0.30, reason_code="issuer_down").recovered
+    assert resolve(roll=0.29, organic_p=0.30, reason_code="bank_not_available").recovered
 
 
 # --- the frozen roll -------------------------------------------------------
@@ -631,10 +631,10 @@ def test_the_report_renders_with_empty_arms_and_undefined_ratios(session, tmp_pa
     """Every None path in one pass: no control arm, no cost, nothing incremental.
 
     These are the cells that crash a formatter, and they turn up in the real
-    dataset - fraud_suspected lands entirely in one arm.
+    dataset - payment_risk_check_failed lands entirely in one arm.
     """
     oracle: dict = {}
-    seed_event(session, oracle, eid="evt_fraud", roll=0.9, reason_code="fraud_suspected")
+    seed_event(session, oracle, eid="evt_fraud", roll=0.9, reason_code="payment_risk_check_failed")
     seed_event(session, oracle, eid="evt_kind", roll=0.1, kind=EventKind.INVOICE_OVERDUE,
                reason_code="invoice_overdue")
 
@@ -662,11 +662,11 @@ def test_the_report_renders_with_empty_arms_and_undefined_ratios(session, tmp_pa
 
 def test_the_report_names_the_holdout_as_untouched_value(session):
     oracle: dict = {}
-    seed_event(session, oracle, eid="evt_refused", roll=0.9, reason_code="fraud_suspected")
+    seed_event(session, oracle, eid="evt_refused", roll=0.9, reason_code="payment_risk_check_failed")
     metrics = compute(
         session, resolve_all(session, oracle=oracle, persist=False), seed=3
     )
 
     assert metrics.suppression.events == 1
     assert metrics.suppression.value_paise == 1_000_00
-    assert "fraud_suspected" in metrics.suppression.by_reason
+    assert "payment_risk_check_failed" in metrics.suppression.by_reason

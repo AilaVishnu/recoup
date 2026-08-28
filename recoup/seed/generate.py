@@ -19,29 +19,66 @@ from faker import Faker
 from recoup.config import PROJECT_ROOT
 from recoup.db import Cohort, Customer, EventKind, RevenueEvent, get_session, init_db
 from recoup.seed.world import organic_recovery_probability
+from recoup.taxonomy import codes_for_rail
 
 ORACLE_PATH = PROJECT_ROOT / "data" / "oracle.json"
 
-# Reason-code mix. Roughly mirrors published Indian e-commerce decline
-# distributions: liquidity and intent dominate, hard technical failures are the
-# long tail, and fraud declines are rare but must be represented because
-# mishandling them is the most expensive mistake available.
-FAILURE_MIX: list[tuple[str, float]] = [
-    ("insufficient_funds", 0.18),
-    ("payment_cancelled", 0.16),
-    ("incorrect_otp", 0.13),
-    ("authentication_failed", 0.10),
-    ("gateway_technical_error", 0.08),
-    ("card_declined", 0.08),
-    ("issuer_down", 0.06),
-    ("payment_timeout", 0.06),
-    ("invalid_cvv", 0.05),
-    ("card_expired", 0.04),
-    ("payment_limit_exceeded", 0.03),
-    ("fraud_suspected", 0.015),
-    ("international_transaction_not_allowed", 0.010),
-    ("transaction_not_permitted", 0.005),
-]
+# Reason-code prevalence, as weights rather than a flat distribution.
+#
+# Rail-scoped, because the earlier version was not: it drew a reason and a rail
+# independently, so 46% of the traffic was UPI and a quarter of failed UPI
+# payments came back as card_expired or incorrect_cvv - failures that cannot
+# happen on that rail. A Razorpay reviewer would notice that in the seed data
+# before reading a line of the recovery logic.
+#
+# Weights are relative prevalence across all rails; the generator filters to the
+# codes possible on the chosen rail and renormalises, so UPI traffic draws UPI
+# failures and cards draw card failures without maintaining a table per rail.
+#
+# The shape reflects Indian checkout: liquidity and intent dominate, credential
+# slips (OTP and PIN) are the next tier, infrastructure faults are a steady
+# background, and risk declines are rare but must appear because mishandling
+# them is the most expensive mistake available.
+FAILURE_WEIGHTS: dict[str, float] = {
+    # liquidity and intent
+    "insufficient_funds": 0.155,
+    "payment_cancelled": 0.140,
+    # credential slips - customer present, cheapest to recover
+    "incorrect_otp": 0.080,
+    "incorrect_pin": 0.075,
+    "incorrect_cvv": 0.035,
+    "otp_expired": 0.030,
+    "authentication_failed": 0.070,
+    # UPI-specific friction, the single largest rail in India
+    "payment_collect_request_expired": 0.055,
+    "invalid_vpa": 0.030,
+    "vpa_resolution_failed": 0.020,
+    "transaction_frequency_limit_exceeded": 0.018,
+    "transaction_on_vpa_restricted": 0.010,
+    "psp_not_available": 0.028,
+    "upi_app_technical_error": 0.030,
+    "pin_attempts_exceeded": 0.012,
+    # limits
+    "transaction_daily_limit_exceeded": 0.040,
+    "transaction_limit_exceeded": 0.025,
+    "credit_limit_exceeded": 0.018,
+    # infrastructure
+    "gateway_technical_error": 0.045,
+    "bank_not_available": 0.038,
+    "issuer_technical_error": 0.025,
+    "payment_declined_due_to_high_traffic": 0.020,
+    "payment_timed_out": 0.035,
+    # instrument unusable
+    "card_declined": 0.045,
+    "card_expired": 0.028,
+    "debit_instrument_blocked": 0.012,
+    "international_transaction_not_allowed": 0.010,
+    "otp_attempts_exceeded": 0.014,
+    # never retried - rare, and the most expensive to get wrong
+    "payment_risk_check_failed": 0.014,
+    "payment_amount_tampered": 0.003,
+    "compliance_violation": 0.002,
+}
 
 KIND_MIX: list[tuple[EventKind, float]] = [
     (EventKind.PAYMENT_FAILED, 0.60),
@@ -95,6 +132,24 @@ def _weighted(rng: random.Random, choices: list[tuple]) -> object:
     population = [c[0] for c in choices]
     weights = [c[1] for c in choices]
     return rng.choices(population, weights=weights, k=1)[0]
+
+
+
+def _failure_for_rail(rng: random.Random, rail: str) -> str:
+    """Draw a failure reason that is physically possible on `rail`.
+
+    Filtering and renormalising per rail is what keeps the dataset honest. Drawing
+    reason and rail independently produced UPI payments failing with card_expired,
+    which is not a rare edge case in the data - it was roughly a quarter of failed
+    UPI events, and UPI is 46% of the traffic.
+    """
+    allowed = codes_for_rail(rail)
+    weights = [(c, FAILURE_WEIGHTS[c]) for c in allowed if c in FAILURE_WEIGHTS]
+    if not weights:
+        # No modelled failure for this rail. Better to fall back to a rail-agnostic
+        # reason than to invent one the taxonomy would reject.
+        return "payment_cancelled"
+    return _weighted(rng, weights)
 
 
 def _amount_paise(rng: random.Random, kind: EventKind) -> int:
@@ -155,8 +210,9 @@ def generate(
         kind: EventKind = _weighted(rng, KIND_MIX)
 
         if kind is EventKind.PAYMENT_FAILED:
-            reason = _weighted(rng, FAILURE_MIX)
+            # Rail first, then a reason that can actually occur on it.
             rail = cust.preferred_rail if rng.random() < 0.7 else _weighted(rng, RAIL_MIX)
+            reason = _failure_for_rail(rng, rail)
         elif kind is EventKind.CHECKOUT_ABANDONED:
             reason = "checkout_abandoned"
             rail = _weighted(rng, RAIL_MIX)

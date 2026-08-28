@@ -503,10 +503,10 @@ def _genuine_allow(session, customer, at=NOON_IST_UTC) -> Review:
 def test_a_review_from_another_event_cannot_authorise_a_fraud_retry(
     offline, outbox_file, session
 ):
-    """fraud_suspected is the hardest stop in the taxonomy. Here it is retried."""
+    """payment_risk_check_failed is the hardest stop in the taxonomy. Here it is retried."""
     customer, event, decision = make(
         session,
-        reason_code="fraud_suspected",
+        reason_code="payment_risk_check_failed",
         action_type=ActionType.RETRY_PAYMENT,
         event_id="evt_fraud",
     )
@@ -544,7 +544,7 @@ def test_a_review_from_another_event_cannot_discount_a_technical_failure(
     """A discount on a bank outage is the exact margin burn the taxonomy exists to stop."""
     customer, event, decision = make(
         session,
-        reason_code="issuer_down",
+        reason_code="bank_not_available",
         amount_paise=20_000_00,
         action_type=ActionType.NUDGE_WITH_INCENTIVE,
         params={"incentive_paise": 19_000_00},  # 95%, on a technical failure
@@ -557,7 +557,7 @@ def test_a_review_from_another_event_cannot_discount_a_technical_failure(
 
     spent = session.scalar(select(func.sum(SpendLog.amount_paise))) or 0
     assert spent == 0, (
-        f"BYPASS: Rs {spent / 100:,.0f} discounted on issuer_down. execute()'s only "
+        f"BYPASS: Rs {spent / 100:,.0f} discounted on bank_not_available. execute()'s only "
         "independent incentive bound is `incentive < order value` (_incentive_of), "
         "i.e. 100% - not 15%, not Rs 2,000, and not eligibility."
     )
@@ -596,7 +596,7 @@ def test_a_fabricated_review_cannot_authorise_anything(offline, outbox_file, ses
     """Review is a plain dataclass with no provenance. Anyone can mint one."""
     customer, event, decision = make(
         session,
-        reason_code="fraud_suspected",
+        reason_code="payment_risk_check_failed",
         cohort=Cohort.CONTROL,
         action_type=ActionType.RETRY_PAYMENT,
         event_id="evt_forged",

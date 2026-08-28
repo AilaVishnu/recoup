@@ -128,7 +128,7 @@ def make_assessment(event: RevenueEvent, **overrides) -> Assessment:
 
 def test_settled_reason_codes_never_reach_the_model():
     """The load-bearing claim. A lookup answers these; a model would only be slower."""
-    for code in ("incorrect_otp", "invalid_cvv", "issuer_down", "gateway_technical_error"):
+    for code in ("incorrect_otp", "incorrect_cvv", "bank_not_available", "gateway_technical_error"):
         event = make_event(reason_code=code)
         use_llm, why = should_escalate_to_model(event, make_assessment(event))
         assert not use_llm, f"{code} was routed to the model: {why}"
@@ -136,7 +136,7 @@ def test_settled_reason_codes_never_reach_the_model():
 
 
 def test_fraud_declines_are_not_worth_a_model_call():
-    event = make_event(reason_code="fraud_suspected")
+    event = make_event(reason_code="payment_risk_check_failed")
     use_llm, why = should_escalate_to_model(
         event, make_assessment(event, recoverability=0.0, expected_value_paise=0)
     )
@@ -193,7 +193,7 @@ def test_a_hard_decline_against_a_strong_recovery_history_reaches_the_model():
 
 def test_a_second_attempt_reaches_the_model():
     """The taxonomy's answer has already been tried. Repeating it is not a decision."""
-    event = make_event(reason_code="issuer_down", attempt_no=2)
+    event = make_event(reason_code="bank_not_available", attempt_no=2)
     use_llm, why = should_escalate_to_model(event, make_assessment(event))
     assert use_llm
     assert "repeat attempt" in why
@@ -264,7 +264,7 @@ def test_switch_rail_offers_a_rail_the_taxonomy_endorses():
 
 
 def test_retries_stay_on_the_rail_that_failed():
-    event = make_event(reason_code="issuer_down", rail="netbanking")
+    event = make_event(reason_code="bank_not_available", rail="netbanking")
     action, params, _ = rules_engine.propose_from_rules(
         event, make_assessment(event), make_customer()
     )
@@ -307,7 +307,7 @@ def test_the_brief_never_leaks_the_cohort_or_the_customer_identity():
 
 
 def test_the_brief_states_whether_an_incentive_is_permitted():
-    technical = make_event(reason_code="issuer_down")
+    technical = make_event(reason_code="bank_not_available")
     intent = make_event(reason_code="payment_cancelled")
     assert "NOT PERMITTED" in prompts.event_brief(technical, make_assessment(technical))
     assert "PERMITTED for this reason" in prompts.event_brief(intent, make_assessment(intent))
@@ -386,7 +386,7 @@ def test_every_api_failure_degrades_to_rules(monkeypatch, fake_key, note, expect
     monkeypatch.setattr(
         providers, "call", _raising_provider(providers.ProviderError(note))
     )
-    event = make_event(reason_code="issuer_down")
+    event = make_event(reason_code="bank_not_available")
     action, _, rationale, usage = brain.propose(
         event, make_assessment(event), make_customer()
     )
@@ -462,14 +462,14 @@ def test_malformed_model_output_is_rejected(payload):
 
 def test_a_retry_on_a_do_not_retry_reason_is_rejected_outright():
     """Policy would deny it anyway; letting it through only pollutes the trail."""
-    event = make_event(reason_code="fraud_suspected")
+    event = make_event(reason_code="payment_risk_check_failed")
     payload = good_payload(action_type="retry_payment")
     assert brain._validate(_text_of(payload), event) is None
 
 
 def test_a_discount_on_a_technical_failure_is_stripped_not_rejected():
     """The nudge is still worth sending. Only the margin burn is removed."""
-    event = make_event(reason_code="issuer_down")
+    event = make_event(reason_code="bank_not_available")
     payload = good_payload(action_type="nudge_with_incentive", incentive_paise=200_00)
     action, params, rationale = brain._validate(_text_of(payload), event)
     assert action is ActionType.NUDGE
@@ -556,14 +556,14 @@ def test_a_fallback_is_recorded_as_rules_not_as_the_model(session, no_api_key):
 
 def test_every_decision_records_why_it_took_the_path_it_took(session):
     customer = make_customer()
-    event = make_event(reason_code="issuer_down")
+    event = make_event(reason_code="bank_not_available")
     session.add_all([customer, event])
     session.flush()
 
     decision = decide(session, event, make_assessment(event), customer, NOW)
 
     assert decision.params["routed_to"] == "rules"
-    assert "issuer_down" in decision.params["routing_reason"]
+    assert "bank_not_available" in decision.params["routing_reason"]
     assert set(decision.params) >= {"rail", "incentive_paise", "delay_hours"}
 
 

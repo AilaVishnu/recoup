@@ -35,9 +35,11 @@ is a bad five minutes, and it is avoidable.
 
 *Open `recoup/taxonomy.py`. Scroll slowly through the profiles.*
 
-> This is the file the whole project rests on. Sixteen failure reason codes,
-> mapped to Razorpay's `error_source` and `error_step` schema, and each one
-> carries what it *implies*.
+> This is the file the whole project rests on. Thirty-three failure reason
+> codes — every one a real Razorpay `error_reason`, not a paraphrase — mapped to
+> their `error_source` and `error_step` schema, and each one carries what it
+> *implies*. They're rail-scoped too: a UPI collect can't fail the way a card
+> does, so the data never pretends otherwise.
 >
 > An issuer outage and a fraud decline both surface as "payment failed". One
 > should be retried in two hours, untouched, and the other must **never** be
@@ -50,7 +52,7 @@ is a bad five minutes, and it is avoidable.
 
 *Point at `incentive_eligible`.*
 
-> And only **two of sixteen** reason codes let Recoup spend money. That's not a
+> And only **two of thirty-three** reason codes let Recoup spend money. That's not a
 > budget setting, it's from the domain: a discount can only move a failure whose
 > cause was intent. Discounting a bank outage pays a customer to do what they
 > were already going to do.
@@ -109,18 +111,18 @@ is a bad five minutes, and it is avoidable.
 
 *Switch to the terminal showing the eval report.*
 
-> Gross recovery is 27.1%. The control arm recovered 19.9% **with no help at
-> all**. So the honest number is the difference: **seven point two percentage
-> points**, about ₹1.3 lakh that would not have come back.
+> Gross recovery is 31.7%. The control arm recovered 21.8% **with no help at
+> all**. So the honest number is the difference: **nine point nine percentage
+> points**, about ₹1.2 lakh that would not have come back.
 >
-> A tool without a holdout would have put 27.1% on the slide.
+> A tool without a holdout would have put 31.7% on the slide.
 
 *Point at the CI.*
 
-> And I have to say this: **the interval includes zero.** It clears by less than
-> a basis point. At 600 events this sample can't rule out no effect. The
-> report leads with the interval rather than the point estimate for exactly that
-> reason, and the dashboard says "behind" when the estimate is behind.
+> The interval is plus two point two to plus seventeen point six, so it clears
+> zero — but only just, and it did *not* clear zero a day ago. That changed when
+> I corrected the taxonomy, not because the system got better, and I'd rather say
+> that than let you assume the improvement was mine.
 >
 > The rupee figures are simulated — I don't have a real merchant's post-failure
 > customer behaviour. What's *real* is the decision quality, and the pipeline is

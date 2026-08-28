@@ -79,7 +79,7 @@ failures alone.
 
 ```
                     ┌─────────────────┐
-                    │  taxonomy.py    │  16 reason codes → strategy,
+                    │  taxonomy.py    │  33 reason codes → strategy,
                     │  (domain core)  │  attempt ceiling, wait, incentive
                     └────────┬────────┘  eligibility
                              │ every stage reads from here
@@ -119,8 +119,9 @@ and the other must never be retried at all. Systems that treat them alike burn
 money and — worse — push risk-declined transactions back through the rails,
 earning the merchant a higher decline rate and a chargeback problem.
 
-Sixteen reason codes, mapped against Razorpay's `error_source` / `error_step`
-schema, each carrying:
+Thirty-three reason codes, **every one a real Razorpay `error_reason`** from
+[their published list](https://razorpay.com/docs/errors/payments/list/), mapped
+against the `error_source` / `error_step` schema, each carrying:
 
 | Field | Why it exists |
 |---|---|
@@ -131,7 +132,7 @@ schema, each carrying:
 | `incentive_eligible` | Whether spending money could plausibly change the outcome |
 | `switch_to` | Which rails are worth offering instead |
 
-**Only 2 of 16 reason codes permit spending money** — `payment_cancelled` and
+**Only 2 of 33 reason codes permit spending money** — `payment_cancelled` and
 `checkout_abandoned`. That constraint is derived from the domain, not from a
 budget setting: a discount can only move a failure whose cause was *intent*.
 Discounting a bank outage is pure margin burn — you paid a customer to do what
@@ -323,7 +324,7 @@ This section is the one to read before believing any number.
 failure reason, respects its bounds, refuses to retry risk declines, times
 liquidity retries sensibly, defers out of quiet hours, and never exceeds budget.
 These are properties of the code and hold regardless of any simulation
-parameter. 263 tests cover them, including 27 adversarial bypass attempts.
+parameter. 280 tests cover them, including 27 adversarial bypass attempts.
 
 **Simulated — the rupee figures.** Recoup has no access to a real merchant's
 post-failure customer behaviour, so outcomes come from `seed/world.py`. Its lift
@@ -355,12 +356,14 @@ Against real traffic the priors would be wrong on day one, which is what
 
 | | |
 |---|---|
-| **Incremental recovery rate** | **+7.2pp** (95% CI −0.0 … +14.5) |
-| Incremental recovered | ₹1.3L across 46 events |
-| Gross recovery rate | 27.1% — *what a system without a holdout would claim* |
-| Control arm recovery rate | 19.9% — *with no help at all* |
+| **Incremental recovery rate** | **+9.9pp** (95% CI +2.2 … +17.6) |
+| Incremental recovered | ₹1,21,139 across 53 events |
+| Gross recovery rate | 31.7% — *what a system without a holdout would claim* |
+| Control arm recovery rate | 21.8% — *with no help at all* |
+| Cost | ₹21 |
+| Cannibalisation | ₹0 |
 | Events harmed | 0 |
-| Sensitivity range | +2.5pp (pessimistic) → +10.5pp (optimistic) |
+| Sensitivity range | +2.3pp (pessimistic) → +14.7pp (optimistic) |
 | Decisions | 600 taxonomy, 0 model |
 
 Taxonomy-only, which is what a reviewer reproduces from a clean checkout with no
@@ -490,7 +493,7 @@ python scripts/run_eval.py        # grade it honestly
 python scripts/serve.py           # dashboard on :8000
 python scripts/robustness.py      # five datasets
 python scripts/verify_live.py     # one real Payment Link
-pytest -q                         # 263 tests
+pytest -q                         # 280 tests
 ```
 
 Recoup refuses to start against a `rzp_live_` key. It sends messages and spends

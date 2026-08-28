@@ -65,23 +65,35 @@ audit trail can actually support.
 
 ## The domain core
 
-A failed payment is not one thing. [`recoup/taxonomy.py`](recoup/taxonomy.py) classifies 16
+A failed payment is not one thing. [`recoup/taxonomy.py`](recoup/taxonomy.py) classifies 33
 reason codes against Razorpay's `error_source` / `error_step` schema and derives
 what each one implies:
 
 | Failure | Strategy | Incentive? | Why |
 |---|---|---|---|
-| `issuer_down` | wait 2h, retry untouched | never | Nothing is wrong with the customer |
+| `bank_not_available` | wait 2h, retry untouched | never | Nothing is wrong with the customer |
 | `incorrect_otp` | retry now, same rail | never | Fat-finger; highest-yield recovery there is |
 | `insufficient_funds` | retry in the next salary window | never | Intent is intact, the balance isn't |
 | `card_expired` | switch rails, one attempt | never | Retrying the same card is guaranteed to fail |
 | `payment_cancelled` | persuade | **yes** | Nothing broke — the customer chose not to pay |
-| `fraud_suspected` | **do not retry** | never | Re-presenting a risk decline earns chargebacks |
+| `payment_risk_check_failed` | **do not retry** | never | Re-presenting a risk decline earns chargebacks |
 
-Two of sixteen reason codes permit spending money. That constraint comes from the
-domain, not from a budget setting: a discount can only move a failure whose cause
-was intent. Everywhere else it's pure margin burn — you paid the customer to do
-what they were already going to do.
+**Two of thirty-three reason codes permit spending money.** That constraint comes
+from the domain, not from a budget setting: a discount can only move a failure
+whose cause was intent. Everywhere else it's pure margin burn — you paid the
+customer to do what they were already going to do.
+
+Every code here is a real Razorpay `error_reason`, taken from
+[their published list](https://razorpay.com/docs/errors/payments/list/). That
+sentence is load-bearing: an earlier version of this file invented six of them,
+including `invalid_cvv` where Razorpay emits `incorrect_cvv` and
+`payment_timeout` where it emits `payment_timed_out`. Near-miss spellings are the
+worst kind of wrong — they read as correct to anyone who hasn't checked.
+
+Codes are **rail-scoped**, too. A UPI collect can't fail with `card_expired` and a
+card can't fail with `invalid_vpa`, so the generator only deals reasons that are
+physically possible on the rail it chose. The earlier version didn't, and dealt
+card failures to UPI payments across 46% of the traffic.
 
 An unrecognised reason code fails closed: no action, surfaced for a human, and
 counted as a coverage metric rather than quietly dropped.
@@ -171,12 +183,22 @@ Seed 42 · 600 events · ₹34.5L at risk
 
 | | |
 |---|---|
-| **Incremental recovery rate** | **+7.2pp** (95% CI −0.0 … +14.5) |
-| Incremental recovered | **₹1.3L** across 46 events |
-| Gross recovery rate | 27.1% — *what a system without a holdout would claim* |
-| Control arm | 19.9% — *recovered with no help at all* |
+| **Incremental recovery rate** | **+9.9pp** (95% CI +2.2 … +17.6) |
+| Incremental recovered | **₹1,21,139** across 53 events |
+| Gross recovery rate | 31.7% — *what a system without a holdout would claim* |
+| Control arm | 21.8% — *recovered with no help at all* |
+| Net after cost | ₹1,21,118 |
+| Cannibalisation | ₹0 |
 | Events harmed | 0 |
-| Sensitivity range | +2.5pp (pessimistic) → +10.5pp (optimistic) |
+| Sensitivity range | +2.3pp (pessimistic) → +14.7pp (optimistic) |
+
+> **These figures moved when the taxonomy was corrected, and not because the
+> system got better.** The previous headline (+7.2pp) was measured on a dataset
+> containing six invented reason codes and card failures dealt to UPI payments.
+> It was internally consistent and physically impossible. This one is measured on
+> data where every code is a real Razorpay `error_reason` and every failure can
+> occur on the rail it occurred on. The two are not comparable, and the earlier
+> number should not be read as a baseline this improved on.
 
 **This is the number you get with no keys configured at all** — every decision
 taken by the taxonomy. `seed.py && run_pipeline.py && run_eval.py` on a clean
@@ -188,13 +210,14 @@ require a key and are therefore not something a reviewer can check by cloning.
 Keys upgrade simulated execution to real Razorpay calls and taxonomy-only
 decisions to model-assisted ones. They do not gate the run.
 
-The gap between 27.1% and +7.2pp is the entire point of this project. A recovery
+The gap between 31.7% and +9.9pp is the entire point of this project. A recovery
 tool without a holdout would have reported the first number.
 
 **Caveats, stated rather than buried:**
 
-- **The interval includes zero** (−0.0pp at the low end — it clears by less
-  than a basis point). At 600 events this sample cannot rule out no effect. The report leads with the interval rather
+- **The interval now excludes zero** (+2.2pp at the low end), which the
+  previous one did not. That is a change in the data, not evidence that the
+  system improved — see the note above. The report leads with the interval rather
   than the point estimate for that reason, and the dashboard says "behind" when
   the point estimate is behind.
 - **This number has moved several times and never once because a figure was
@@ -351,7 +374,7 @@ python scripts/run_eval.py        # grade it honestly
 python scripts/serve.py           # dashboard on :8000
 python scripts/robustness.py      # does it hold on other datasets?
 python scripts/verify_live.py     # one real Payment Link, notifications off
-pytest -q                         # 263 tests
+pytest -q                         # 280 tests
 ```
 
 Recoup refuses to start against a `rzp_live_` key. It sends messages and spends
@@ -364,7 +387,7 @@ structurally impossible rather than merely intended.
 
 | | |
 |---|---|
-| ✅ Failure taxonomy — 16 reason codes, fail-closed | `recoup/taxonomy.py` |
+| ✅ Failure taxonomy — 33 real Razorpay reason codes, rail-scoped, fail-closed | `recoup/taxonomy.py` |
 | ✅ Audit-trail schema — 9 tables, one row per stage | `recoup/db.py` |
 | ✅ Synthetic merchant + world model | `recoup/seed/` |
 | ✅ Feature extraction, incl. liquidity-window timing | `recoup/detect/features.py` |

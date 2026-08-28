@@ -63,14 +63,14 @@ def named(result, name):
 
 
 def test_fraud_declines_are_never_retried(session):
-    r = review(ctx(reason_code="fraud_suspected", action_type=ActionType.RETRY_PAYMENT), session)
+    r = review(ctx(reason_code="payment_risk_check_failed", action_type=ActionType.RETRY_PAYMENT), session)
     assert r.verdict is PolicyVerdict.DENY
     assert not named(r, "never_retry_risk_declines").passed
 
 
 def test_fraud_declines_may_still_be_escalated(session):
     r = review(
-        ctx(reason_code="fraud_suspected", action_type=ActionType.ESCALATE_TO_HUMAN),
+        ctx(reason_code="payment_risk_check_failed", action_type=ActionType.ESCALATE_TO_HUMAN),
         session,
     )
     assert named(r, "never_retry_risk_declines").passed
@@ -86,7 +86,7 @@ def test_discounting_a_technical_failure_is_refused(session):
     """The single most common way recovery tooling burns margin."""
     r = review(
         ctx(
-            reason_code="issuer_down",
+            reason_code="bank_not_available",
             action_type=ActionType.NUDGE_WITH_INCENTIVE,
             incentive_paise=200_00,
         ),
@@ -163,7 +163,7 @@ def test_silent_retries_are_allowed_during_quiet_hours(session):
     three_am_ist = datetime(2026, 3, 3, 21, 30)
     r = review(
         ctx(
-            reason_code="issuer_down",
+            reason_code="bank_not_available",
             action_type=ActionType.RETRY_PAYMENT,
             now=three_am_ist,
             earliest_action_at=three_am_ist,
@@ -245,7 +245,7 @@ def test_every_rule_runs_even_after_a_failure(session):
     """No short-circuiting: the record must show everything that was wrong."""
     r = review(
         ctx(
-            reason_code="fraud_suspected",
+            reason_code="payment_risk_check_failed",
             action_type=ActionType.NUDGE_WITH_INCENTIVE,
             incentive_paise=9_000_00,
             expected_value_paise=1_00,

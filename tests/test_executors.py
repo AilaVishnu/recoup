@@ -243,7 +243,7 @@ def test_a_discount_on_a_technical_failure_is_refused_by_the_executor(no_keys, s
     """
     customer, event, decision = make(
         session,
-        reason_code="issuer_down",
+        reason_code="bank_not_available",
         action_type=ActionType.NUDGE_WITH_INCENTIVE,
         params={"incentive_paise": 100_00},
         amount_paise=2_000_00,
@@ -259,7 +259,7 @@ def test_silent_retry_writes_no_contact_log(no_keys, outbox_file, session):
     """A retry is not a message. Counting it against the fatigue cap would make
     Recoup refuse to retry a bank outage because it emailed twice last week."""
     customer, event, decision = make(
-        session, reason_code="issuer_down", action_type=ActionType.RETRY_PAYMENT
+        session, reason_code="bank_not_available", action_type=ActionType.RETRY_PAYMENT
     )
     run = execute(session, decision, allowed(event, customer, decision, NOW), event, customer, NOW)
 
@@ -295,7 +295,7 @@ def test_escalation_is_not_customer_contact(no_keys, outbox_file, session):
 
 def test_no_action_sends_nothing_at_all(no_keys, outbox_file, session):
     customer, event, decision = make(
-        session, reason_code="fraud_suspected", action_type=ActionType.NO_ACTION
+        session, reason_code="payment_risk_check_failed", action_type=ActionType.NO_ACTION
     )
     run = execute(session, decision, allowed(event, customer, decision, NOW), event, customer, NOW)
 
@@ -417,7 +417,7 @@ def test_a_link_is_never_created_and_then_left_out_of_the_copy(no_keys, session)
 
 def test_copy_differs_by_strategy(no_keys, session):
     """A bank-outage notice must not read like an abandoned-cart nudge."""
-    customer, event, _ = make(session, reason_code="issuer_down")
+    customer, event, _ = make(session, reason_code="bank_not_available")
     outage = outbox.compose(event, customer, ActionType.NUDGE)
 
     event.reason_code = "payment_cancelled"
