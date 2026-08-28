@@ -42,6 +42,7 @@ from recoup.db import (
     SpendLog,
 )
 from recoup.detect.features import is_quiet_hours
+from recoup.money import rupees
 from recoup.taxonomy import Strategy, profile_for
 
 
@@ -485,14 +486,14 @@ def _rule_incentive_depth(ctx: ReviewContext, session: Session) -> Check:
         reasons.append(f"{frac:.1%} > {ctx.bounds.max_incentive_fraction:.0%} cap")
     if over_abs:
         reasons.append(
-            f"Rs {ctx.incentive_paise/100:,.0f} > Rs {ctx.bounds.max_incentive_paise/100:,.0f} absolute cap"
+            f"{rupees(ctx.incentive_paise)} > {rupees(ctx.bounds.max_incentive_paise)} absolute cap"
         )
 
     return Check(
         "incentive_depth",
         ok,
         PolicyVerdict.ALLOW if ok else PolicyVerdict.DENY,
-        f"Rs {ctx.incentive_paise/100:,.0f} ({frac:.1%})"
+        f"{rupees(ctx.incentive_paise)} ({frac:.1%})"
         if ok
         else "; ".join(reasons),
     )
@@ -517,8 +518,8 @@ def _rule_incentive_ev_positive(ctx: ReviewContext, session: Session) -> Check:
         "incentive_ev_positive",
         ok,
         PolicyVerdict.ALLOW if ok else PolicyVerdict.DENY,
-        f"est. incremental Rs {est_incremental_paise/100:,.0f} vs cost "
-        f"Rs {ctx.incentive_paise/100:,.0f} (ratio {ratio:.1f}x, "
+        f"est. incremental {rupees(est_incremental_paise)} vs cost "
+        f"{rupees(ctx.incentive_paise)} (ratio {ratio:.1f}x, "
         f"need {ctx.bounds.min_incremental_ev_ratio:.1f}x)",
     )
 
@@ -540,8 +541,8 @@ def _rule_daily_budget(ctx: ReviewContext, session: Session) -> Check:
         "daily_budget",
         ok,
         PolicyVerdict.ALLOW if ok else PolicyVerdict.DENY,
-        f"Rs {spent/100:,.0f} spent today + Rs {ctx.incentive_paise/100:,.0f} "
-        f"vs Rs {budget/100:,.0f} budget",
+        f"{rupees(spent)} spent today + {rupees(ctx.incentive_paise)} "
+        f"vs {rupees(budget)} budget",
     )
 
 
@@ -554,8 +555,8 @@ def _rule_minimum_expected_value(ctx: ReviewContext, session: Session) -> Check:
         "minimum_expected_value",
         ok,
         PolicyVerdict.ALLOW if ok else PolicyVerdict.DENY,
-        f"EV Rs {ctx.expected_value_paise/100:,.0f} vs floor "
-        f"Rs {ctx.bounds.min_expected_value_paise/100:,.0f}",
+        f"EV {rupees(ctx.expected_value_paise)} vs floor "
+        f"{rupees(ctx.bounds.min_expected_value_paise)}",
     )
 
 
@@ -569,8 +570,8 @@ def _rule_high_value_needs_human(ctx: ReviewContext, session: Session) -> Check:
             "high_value_needs_human",
             False,
             PolicyVerdict.ESCALATE,
-            f"Rs {ctx.amount_paise/100:,.0f} exceeds the Rs "
-            f"{ctx.bounds.human_approval_above_paise/100:,.0f} autonomy limit",
+            f"{rupees(ctx.amount_paise)} exceeds the "
+            f"{rupees(ctx.bounds.human_approval_above_paise)} autonomy limit",
         )
     return Check("high_value_needs_human", True, PolicyVerdict.ALLOW, "within autonomy limit")
 

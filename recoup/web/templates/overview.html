@@ -3,6 +3,136 @@
 
 {% block content %}
 
+{#
+  Page-scoped styles. Three agents are editing templates in parallel and app.css
+  is owned by none of them, so anything below that belongs in the shared sheet
+  says so and why. Everything else here is genuinely specific to this page: no
+  other screen has to draw a total split into the part it caused and the part it
+  did not.
+#}
+<style>
+/* The gross/incremental composition.
+ *
+ * This is the one argument the dashboard exists to make, and as two sibling
+ * tiles it was not an argument at all - just two rupee figures a viewer had to
+ * subtract in their head before noticing that a large share of "gross recovery"
+ * was never ours. Drawn as one bar, the grey run IS the overclaim, at its true
+ * width, and it needs no sentence to explain it.
+ *
+ * app.css's td.bar is a single-series track against a fixed denominator and
+ * cannot express a total partitioned into two named parts, which is why this
+ * lives here rather than reaching for that. */
+.split-bar {
+  display: flex;
+  height: var(--s-6);
+  margin: var(--s-4) 0 var(--s-3);
+  border-radius: var(--r-1);
+  overflow: hidden;
+  /* Shows through if a segment ever rounds to a sliver, so a 1% increment reads
+   * as "almost none" rather than as a bar that failed to render. */
+  background: var(--line-soft);
+}
+.split-bar span {
+  display: block;
+  height: 100%;
+  /* Below this a run is indistinguishable from a bar that failed to render. */
+  min-width: var(--s-1);
+}
+/* Grey and blue, not green and red: this is a proportion, not a verdict, and
+ * the two reserved hues never appear outside a policy result. The divider is
+ * painted in the page background rather than drawn as a border, so the two runs
+ * stay two quantities after a codec has smeared the edge between them. 3px is
+ * the rail width app.css already uses for the same job on .checks rows. */
+.split-bar .is-organic { background: var(--muted); box-shadow: inset -3px 0 0 var(--bg); }
+.split-bar .is-incremental { background: var(--accent); }
+
+/* Colour is not the only signal here either: each run is named, figured and
+ * given a swatch, so the bar still parses in greyscale and on a phone. Shaped
+ * like a slice of the bar rather than as a dot, and sized to sit inside the
+ * cap height of the letterspaced label beside it. */
+.swatch {
+  display: inline-block;
+  width: var(--s-4);
+  height: var(--s-2);
+  border-radius: var(--r-pill);
+  margin-right: var(--s-2);
+}
+.swatch.is-organic { background: var(--muted); }
+.swatch.is-incremental { background: var(--accent); }
+
+/* The two parts sit label-left, figure-right so their rupee figures share a
+ * right edge and can be compared by length alone - the alignment contract the
+ * tables hold to, applied to a two-row list. */
+.headline-compare .legend > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+}
+/* A step below the gross total above them. Gross is the whole this bar divides,
+ * so it stays the largest figure in the column. */
+.headline-compare .legend dd { font-size: var(--num-sm); white-space: nowrap; }
+/* A second dd on a term, carrying the qualification that would otherwise be
+ * bolted onto the label and make it two lines of letterspaced uppercase. */
+.headline-compare dd.why {
+  font-family: var(--sans);
+  font-size: var(--fs-sm);
+  letter-spacing: 0;
+  color: var(--muted);
+  line-height: 1.45;
+  margin-top: var(--s-2);
+}
+
+/* The value-weighting explanation runs to nine lines and is the third thing a
+ * viewer needs from that panel, not the first. Collapsed - but the claim itself
+ * is the summary, so a reader who never opens it still learns that this page and
+ * the eval report disagree on purpose. Native <details>: no script to fail, and
+ * the text stays in the document for find-in-page and for a screen reader
+ * whether it is open or shut. */
+details.aside {
+  border-left: 2px solid var(--line);
+  padding-left: var(--s-4);
+  margin-top: var(--s-4);
+}
+details.aside > summary {
+  color: var(--ink-2);
+  font-size: var(--fs-md);
+  line-height: 1.65;
+  cursor: pointer;
+  max-width: 84ch;
+}
+details.aside > summary:hover { color: var(--ink); }
+details.aside > summary::marker { color: var(--accent); }
+details.aside > summary code { font-size: var(--fs-xs); }
+details.aside[open] > summary { margin-bottom: var(--s-2); }
+details.aside .note { margin-top: var(--s-2); }
+
+/* An interval that spans zero is the most important cell in the sweep and was
+ * rendered in the dimmest ink on the page. Amber is the "read this twice" hue
+ * here; green and red stay on policy verdicts. */
+.grid td.crosses { color: var(--amber); }
+
+/* td.strong is in app.css's component index and is what the sweep's net column
+ * already asks for, but it is implemented only under .rows - so that column
+ * currently renders identically to the cells beside it. Declared here because
+ * this pass may not touch the shared sheet. It belongs there. */
+.grid td.strong { color: var(--ink); font-weight: var(--w-semi); }
+</style>
+
+{#
+  The sweep is read once, here, because two parts of this page depend on it: the
+  confidence interval that qualifies the headline figure, and the sweep table
+  itself. Read twice, the two could disagree - and an interval quoted beside the
+  headline that does not match the row it came from is exactly the discrepancy
+  this project spends the rest of its surface arguing against.
+
+  The default point is preferred by name and the first interval used as a
+  fallback, so a renamed sweep makes the caveat less specific rather than blank.
+#}
+{% set sweep = report.sweep() if report else [] %}
+{% set with_ci = sweep | rejectattr("ci_low", "none") | list %}
+{% set ci = (with_ci | selectattr("label", "equalto", "default") | list | first) or (with_ci | first) %}
+
 <h1>Revenue at risk</h1>
 <p class="lede">
   Everything on this page is computed from the audit trail, not from a report
@@ -23,47 +153,146 @@
   {% include "_empty.html" %}
 {% else %}
 
-<section class="tiles">
-  <div class="tile">
-    <span class="k">value at risk</span>
-    <span class="v">{{ ov.value_at_risk_paise|rupees }}</span>
-    <span class="s">{{ ov.events }} events &middot; {{ ov.value_at_risk_paise|crupees }}</span>
-  </div>
-  <div class="tile">
-    <span class="k">gross recovery</span>
-    <span class="v">{{ ov.gross_paise|rupees }}</span>
-    <span class="s">treatment arm, {{ ov.treatment.recovered_events }} events recovered</span>
-  </div>
-  <div class="tile">
+{#
+  One headline, two halves, one relationship. The left half is the figure the
+  project stands behind; the right half is the larger figure it declines to quote
+  and the reason the two differ. As sibling tiles they looked like two
+  independent achievements, which is precisely the misreading a holdout exists to
+  prevent.
+#}
+<section class="headline split">
+  <div>
+    <p class="headline-k">incremental recovery</p>
+    <p class="headline-v">
+      {%- if ov.has_outcomes %}{{ ov.incremental_paise|rupees }}{% else %}&mdash;{% endif -%}
+    </p>
+    <p class="headline-s">
+      Gross recovery minus what the untouched holdout says would have arrived on
+      its own. It is the only figure here Recoup can claim to have caused, and it
+      is the one the project reports.
+    </p>
+
     {#
-      Labelled "organic", not "cannibalised". This tile shows the counterfactual -
-      revenue that would have arrived with no intervention at all - while
-      cannibalisation is the far smaller sum actually SPENT on those customers,
-      and the sweep table below uses the word in that second sense. One word for
-      two quantities put Rs 99,100 on this page against Rs 0 in the terminal
-      report for what a reader would reasonably take to be the same number.
+      The interval belongs beside the number, not in a footnote under a table
+      four screens down. A reader who finds it later assumes it was hidden, and
+      the whole claim of this dashboard is that it volunteers the number which
+      makes its own result look smaller.
     #}
-    <span class="k">organic</span>
-    <span class="v dim">{{ ov.counterfactual_paise|rupees }}</span>
-    <span class="s">
-      would have arrived anyway
-      {%- if ov.gross_paise %} &middot; {{ (ov.counterfactual_paise / ov.gross_paise)|pct(0) }} of gross{% endif %}
-    </span>
+    {% if ov.has_outcomes and ci %}
+      {#
+        Rounded to 2dp and zeroed near zero. At 1dp a lift of -0.02pp printed as
+        "-0.0pp", which is not a number anyone writes down - and it appeared in
+        both places the interval is quoted.
+      #}
+      {% set lo = 0.0 if (ci.ci_low * 100)|abs < 0.005 else (ci.ci_low * 100)|round(2) %}
+      {% set hi = 0.0 if (ci.ci_high * 100)|abs < 0.005 else (ci.ci_high * 100)|round(2) %}
+      {% set point = (ci.lift * 100)|round(1) if ci.lift is not none else none %}
+      <p class="caveat">
+        <b>Event-weighted lift
+        {%- if point is not none %} {{ "+" if point > 0 else "" }}{{ point }}pp{% endif %},
+        95% CI {{ "+" if lo > 0 else "" }}{{ lo }}pp to {{ "+" if hi > 0 else "" }}{{ hi }}pp &mdash;
+        {%- if ci.crosses_zero %} the interval includes zero.{% else %} the interval excludes zero.{% endif %}</b>
+        {#
+          Branch on the SIGN of the point estimate, not only on whether the
+          interval straddles zero. The earlier version asserted "the treated arm
+          is ahead of the holdout" for every crossing interval, so on a run whose
+          point estimate came out negative the front page stated the opposite of
+          its own data - the one failure mode a dashboard built on not
+          overclaiming cannot have.
+        #}
+        {% if ci.crosses_zero and point is not none and point < 0 %}
+        At {{ ov.events }} events the treated arm is <b>behind</b> the holdout as a
+        point estimate, and the interval is wide enough that neither direction is
+        established. Treat the rupees above as unproven on this sample.
+        {% elif ci.crosses_zero %}
+        At {{ ov.events }} events the treated arm is ahead of the holdout as a
+        point estimate and not yet separable from chance. Read the rupees above
+        as the best estimate this sample supports, not as a proven result.
+        {% else %}
+        At {{ ov.events }} events the treated arm is ahead of the holdout by more
+        than sampling noise accounts for.
+        {% endif %}
+        The harness measures event-weighted where this page measures by rupee, so
+        its lift is not the arm difference in the table below;
+        {% if sweep %}the <a href="#sweep">sensitivity sweep</a> carries an
+        interval for every assumption setting.{% else %}the harness reports one
+        per assumption setting.{% endif %}
+      </p>
+    {% elif ov.has_outcomes %}
+      <p class="caveat">
+        <b>No confidence interval for this figure yet.</b>
+        A point estimate with no interval is not a result. Run
+        <code>python scripts/run_eval.py</code> to bootstrap one before quoting
+        the number above.
+      </p>
+    {% else %}
+      <p class="caveat">
+        <b>Nothing has been graded yet, so there is no incremental figure to
+        report.</b>
+        The dash above is deliberate. A stage that has not run and a stage that
+        ran and recovered nothing are different facts, and printing Rs 0 for both
+        would misrepresent the first.
+      </p>
+    {% endif %}
   </div>
-  <div class="tile key">
-    <span class="k">incremental recovery</span>
-    <span class="v">{{ ov.incremental_paise|rupees }}</span>
-    <span class="s">gross minus organic &middot; the number worth reporting</span>
-  </div>
-  <div class="tile">
-    <span class="k">cost of recovery</span>
-    <span class="v">{{ ov.cost_paise|rupees }}</span>
-    <span class="s">incentives plus channel spend</span>
-  </div>
-  <div class="tile">
-    <span class="k">net</span>
-    <span class="v">{{ ov.net_paise|rupees }}</span>
-    <span class="s">incremental minus cost</span>
+
+  <div class="headline-compare">
+    <dl>
+      <div>
+        <dt>gross recovery</dt>
+        <dd>{{ ov.gross_paise|rupees }}</dd>
+        <dd class="why">
+          What a tool without a holdout would report &middot; treatment arm,
+          {{ ov.treatment.recovered_events }} events recovered
+        </dd>
+      </div>
+    </dl>
+
+    {% if not ov.has_outcomes %}
+      <p class="note">No outcomes have been resolved, so there is no split to draw.</p>
+    {% elif ov.gross_paise > 0 and ov.incremental_paise > 0 %}
+      {% set organic_share = (100 * ov.counterfactual_paise / ov.gross_paise)|round(1) %}
+      <div class="split-bar" role="img"
+           aria-label="Of {{ ov.gross_paise|rupees }} gross recovery, {{ ov.counterfactual_paise|rupees }} ({{ (ov.counterfactual_paise / ov.gross_paise)|pct(0) }}) would have arrived anyway and {{ ov.incremental_paise|rupees }} ({{ (ov.incremental_paise / ov.gross_paise)|pct(0) }}) is incremental.">
+        <span class="is-organic" style="width: {{ organic_share }}%"></span>
+        <span class="is-incremental" style="width: {{ (100 - organic_share)|round(1) }}%"></span>
+      </div>
+
+      {#
+        Labelled "organic", not "cannibalised". This run is the counterfactual
+        - revenue that would have arrived with no intervention at all - while
+        cannibalisation is the far smaller sum actually SPENT on those customers,
+        and the sweep table below uses the word in that second sense. One word for
+        two quantities put Rs 99,100 on this page against Rs 0 in the terminal
+        report for what a reader would reasonably take to be the same number.
+      #}
+      <dl class="legend">
+        <div>
+          <dt><span class="swatch is-organic" aria-hidden="true"></span>organic &middot; {{ (ov.counterfactual_paise / ov.gross_paise)|pct(0) }} of gross</dt>
+          <dd class="dim">{{ ov.counterfactual_paise|rupees }}</dd>
+        </div>
+        <div>
+          <dt><span class="swatch is-incremental" aria-hidden="true"></span>incremental &middot; {{ (ov.incremental_paise / ov.gross_paise)|pct(0) }} of gross</dt>
+          <dd>{{ ov.incremental_paise|rupees }}</dd>
+        </div>
+      </dl>
+      {#
+        Named rather than coloured: "the grey one" is not a description a reader
+        on a phone, in greyscale, or without full colour vision can act on.
+      #}
+      <p class="note">
+        Reporting the whole bar is the industry norm. Reporting only the
+        incremental run, with the organic one printed beside it at its true
+        width, is what the holdout is for.
+      </p>
+    {% else %}
+      <p class="note">
+        The holdout recovered at least as much as the treated arm, so there is no
+        positive increment to split out of gross: organic
+        {{ ov.counterfactual_paise|rupees }} against {{ ov.gross_paise|rupees }}
+        gross.
+      </p>
+    {% endif %}
   </div>
 </section>
 
@@ -82,52 +311,96 @@
 </p>
 {% endif %}
 
-<div class="cols">
+<section class="tiles cols-3">
+  <div class="tile">
+    <span class="k">value at risk</span>
+    <span class="v">{{ ov.value_at_risk_paise|rupees }}</span>
+    <span class="s">{{ ov.events }} events &middot; {{ ov.value_at_risk_paise|crupees }}</span>
+  </div>
+  <div class="tile">
+    <span class="k">cost of recovery</span>
+    <span class="v">{{ ov.cost_paise|rupees }}</span>
+    <span class="s">incentives plus channel spend</span>
+  </div>
+  <div class="tile">
+    <span class="k">net</span>
+    <span class="v">{{ ov.net_paise|rupees }}</span>
+    <span class="s">incremental minus cost</span>
+  </div>
+</section>
 
-  <section class="panel">
+{#
+  Full width, directly under the figure it produces. This table is the evidence
+  for the headline, and in the three-column grid it used to sit in it read as one
+  panel of four - the same rank as a token count.
+#}
+<section class="panel">
+  <div class="head">
     <h2>The two arms</h2>
-    <table class="grid">
-      <thead>
-        <tr>
-          <th>arm</th><th class="n">events</th><th class="n">value at risk</th>
-          <th class="n">recovered</th><th class="n">rate</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for arm in [ov.treatment, ov.control] %}
-        <tr>
-          <td><span class="pill c-{{ arm.cohort.value }}">{{ arm.cohort.value }}</span></td>
-          <td class="n">{{ arm.events }}</td>
-          <td class="n">{{ arm.value_paise|rupees }}</td>
-          <td class="n">{{ arm.recovered_paise|rupees }}</td>
-          <td class="n">{{ arm.recovery_rate|pct }}</td>
-        </tr>
-        {% endfor %}
-        <tr class="total">
-          <td>lift</td>
-          <td class="n">&mdash;</td>
-          <td class="n">&mdash;</td>
-          <td class="n">{{ ov.incremental_paise|rupees }}</td>
-          <td class="n">{{ (ov.treatment.recovery_rate - ov.control.recovery_rate)|pct }} pts</td>
-        </tr>
-      </tbody>
-    </table>
-    <p class="note">
-      Rates are value-weighted: a merchant cares what share of rupees came back,
-      not what share of tickets did, and with this amount distribution the two
-      are not close. The holdout is {{ ov.control.value_paise|crupees }} of
-      at-risk value deliberately left untouched.
-      <br><br>
+    <span class="head-aside">{{ ov.events }} events &middot; {{ (ov.control.events / ov.events)|pct(0) }} held out</span>
+  </div>
+
+  <p class="holdout">
+    <b>{{ ov.control.events }} events, {{ ov.control.value_paise|crupees }} of at-risk
+    value, randomised into a holdout when they landed and never touched.</b>
+    Recoup scored them, decided what it would have done and put that decision
+    through the full policy review &mdash; then stopped at the executor. Every
+    incremental figure on this page is measured against what they recovered on
+    their own.
+  </p>
+
+  <table class="grid">
+    <thead>
+      <tr>
+        <th>arm</th><th class="n">events</th><th class="n">value at risk</th>
+        <th class="n">recovered</th><th class="n">rate</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for arm in [ov.treatment, ov.control] %}
+      <tr>
+        <td><span class="pill c-{{ arm.cohort.value }}">{{ arm.cohort.value }}</span></td>
+        <td class="n">{{ arm.events }}</td>
+        <td class="n">{{ arm.value_paise|rupees }}</td>
+        <td class="n">{{ arm.recovered_paise|rupees }}</td>
+        <td class="n strong">{{ arm.recovery_rate|pct }}</td>
+      </tr>
+      {% endfor %}
+      {% set lift_pp = (ov.treatment.recovery_rate - ov.control.recovery_rate) * 100 %}
+      <tr class="total">
+        <td>lift &mdash; treatment minus control</td>
+        <td class="n">&mdash;</td>
+        <td class="n">&mdash;</td>
+        <td class="n">{{ ov.incremental_paise|rupees }}</td>
+        <td class="n">{{ "+" if lift_pp > 0 else "" }}{{ lift_pp|round(1) }}pp</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="note">
+    Rates are value-weighted: a merchant cares what share of rupees came back,
+    not what share of tickets did, and with this amount distribution the two are
+    not close.
+  </p>
+
+  <details class="aside">
+    <summary>
       <strong>This differs from the figure <code>scripts/run_eval.py</code>
-      prints, and should.</strong> That report weights by event, so every
-      recovery counts once regardless of size; this page weights by rupee. With
-      70% of at-risk value sitting in 12% of events the two diverge sharply, and
-      neither is wrong - they answer different questions. The report also derives
-      lift from per-event attribution against the frozen counterfactual, which a
-      real deployment could not do; the arm difference shown here is what a live
-      merchant could actually measure.
+      prints, and should.</strong>
+    </summary>
+    <p class="note">
+      That report weights by event, so every recovery counts once regardless of
+      size; this page weights by rupee. With 70% of at-risk value sitting in 12%
+      of events the two diverge sharply, and neither is wrong - they answer
+      different questions. The report also derives lift from per-event
+      attribution against the frozen counterfactual, which a real deployment
+      could not do; the arm difference shown here is what a live merchant could
+      actually measure.
     </p>
-  </section>
+  </details>
+</section>
+
+<div class="cols">
 
   <section class="panel">
     <h2>Where recovered money is attributed</h2>
@@ -137,7 +410,7 @@
       <tbody>
         {% for attribution, n, value in ov.by_attribution %}
         <tr>
-          <td>{{ attribution.value }}</td>
+          <td><span class="pill a-{{ attribution.value }}">{{ attribution.value }}</span></td>
           <td class="n">{{ n }}</td>
           <td class="n">{{ value|rupees }}</td>
         </tr>
@@ -149,6 +422,18 @@
       retry Recoup created and is directly traceable; <b>organic</b> means the
       customer came back alone and Recoup takes no credit; <b>unclear</b> is
       never folded into the headline.
+    </p>
+    {#
+      Two figures on this page are labelled "organic" and they are close enough
+      to be mistaken for the same one. Naming the difference here is cheaper than
+      letting a judge find it and assume the page is double-counting.
+    #}
+    <p class="note">
+      This is per-event attribution against the frozen oracle, which a live
+      merchant could not run. The organic figure in the headline is the other
+      route to the same quantity &mdash; the holdout's own recovery rate applied
+      to treated value &mdash; so the two landing close together is a consistency
+      check, not a second count of the same rupees.
     </p>
     {% else %}
     <p class="note">No outcomes resolved yet.</p>
@@ -196,8 +481,9 @@
       </tbody>
     </table>
     {% if ov.denials %}
+    <h3>denied by</h3>
     <table class="grid tight">
-      <thead><tr><th>denied by</th><th class="n">times</th><th class="n">exposure</th></tr></thead>
+      <thead><tr><th>rule</th><th class="n">times</th><th class="n">exposure</th></tr></thead>
       <tbody>
         {% for rule in ov.denials[:6] %}
         <tr>
@@ -242,14 +528,22 @@
 {% endif %}
 
 <section class="panel">
-  <h2>Eval harness</h2>
+  <div class="head">
+    <h2>Eval harness</h2>
+    {% if report %}
+    <p class="head-sub">
+      The grader's own numbers, weighted by event rather than by rupee. This is
+      where the confidence interval at the top of the page comes from.
+    </p>
+    <span class="head-aside"><code>{{ report.path.name }}</code> &middot; {{ report.modified_at|ist }}</span>
+    {% endif %}
+  </div>
+
   {% if report %}
-  <p class="note">
-    <code>{{ report.path.name }}</code> &middot; written {{ report.modified_at|ist }}
-  </p>
   {% if report.provenance %}<p class="note quote">{{ report.provenance }}</p>{% endif %}
   {% set head = report.headline() %}
   {% if head %}
+  <h3>the report's own headline</h3>
   <section class="tiles small">
     {% for label, value in head.items() %}
     <div class="tile">
@@ -260,9 +554,14 @@
   </section>
   {% endif %}
 
-  {% set sweep = report.sweep() %}
   {% if sweep %}
-  <h3>sensitivity sweep</h3>
+  <div class="head">
+    <h3 id="sweep">sensitivity sweep</h3>
+    <p class="head-sub">
+      Each row is the same run re-resolved under a different set of lift
+      assumptions, carrying its own interval.
+    </p>
+  </div>
   <div class="scroll">
   <table class="grid">
     <thead>
@@ -285,7 +584,7 @@
         <td class="n">{{ point.cost_paise|rupees }}</td>
         <td class="n strong">{{ point.net_paise|rupees }}</td>
         <td class="n">{{ point.lift|pct }}</td>
-        <td class="n dim">
+        <td class="n {{ 'crosses' if point.crosses_zero else 'dim' }}">
           {%- if point.ci_low is not none -%}
             {{ point.ci_low|pct }} to {{ point.ci_high|pct }}{{ " *" if point.crosses_zero else "" }}
           {%- endif -%}

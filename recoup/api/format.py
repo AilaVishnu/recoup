@@ -33,21 +33,11 @@ def _to_rupees(paise: int) -> int:
     return sign * ((abs(int(paise)) + 50) // 100)
 
 
-def group_indian(n: int) -> str:
-    """12345678 -> '1,23,45,678'. Last three digits, then pairs."""
-    sign = "-" if n < 0 else ""
-    digits = str(abs(int(n)))
-    if len(digits) <= 3:
-        return sign + digits
-
-    head, tail = digits[:-3], digits[-3:]
-    groups: list[str] = []
-    while len(head) > 2:
-        groups.insert(0, head[-2:])
-        head = head[:-2]
-    if head:
-        groups.insert(0, head)
-    return sign + ",".join([*groups, tail])
+# group_indian lives in recoup/money.py. Two copies is how the dashboard came
+# to format 1,23,456 correctly while the policy check details rendered on the
+# same page printed 123,456 - a drift nobody sees until both are on screen
+# together in front of an audience that groups digits the other way.
+from recoup.money import group_indian  # noqa: E402  (re-exported for templates)
 
 
 def rupees(paise: int | None) -> str:
