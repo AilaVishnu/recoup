@@ -408,6 +408,7 @@ def _segment(dimension: str, key: str, cols: _Columns, mask: np.ndarray) -> Segm
     incremental_paise = int(cols.amount[agent_mask].sum())
 
     harmed_mask = treat_mask & cols.harmed
+    harmed_value = int(cols.amount[harmed_mask].sum())
     cannibal_mask = treat_mask & (cols.cannibalised > 0)
 
     incentive_realised = int(cols.incentive_realised[treat_mask].sum())
@@ -442,14 +443,28 @@ def _segment(dimension: str, key: str, cols: _Columns, mask: np.ndarray) -> Segm
         treated_n=acted_n,
         treated_recovery_rate=(acted_recovered / acted_n) if acted_n else None,
         harmed_n=int(harmed_mask.sum()),
-        harmed_paise=int(cols.amount[harmed_mask].sum()),
+        harmed_paise=harmed_value,
         incentive_committed_paise=int(cols.incentive_committed[treat_mask].sum()),
         incentive_realised_paise=incentive_realised,
         channel_cost_paise=channel_cost,
         cannibalised_paise=int(cols.cannibalised[cannibal_mask].sum()),
         cannibalised_n=int(cannibal_mask.sum()),
         cost_paise=cost,
-        net_paise=incremental_paise - cost,
+        # Harm is subtracted, not merely printed.
+        #
+        # The report lists "recoveries destroyed" as a red line in the cost block
+        # and then captions net as "incremental less all cost", which was false:
+        # net was incremental minus spend, and the harm line above it was
+        # decoration. It happens to read correctly while harm is zero, which is
+        # exactly how a figure like this survives - right by luck, wrong by
+        # construction, and silently overstating the moment an action starts
+        # destroying recoveries.
+        #
+        # The two sets are disjoint - AGENT attributions are recoveries that only
+        # happened because Recoup acted, harmed events are recoveries that only
+        # failed to happen because Recoup acted - so subtracting the full amount
+        # double-counts nothing.
+        net_paise=incremental_paise - cost - harmed_value,
         cost_per_incremental_rupee=(
             cost / incremental_paise if incremental_paise > 0 else None
         ),

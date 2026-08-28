@@ -409,7 +409,11 @@ def _economics_table(metrics: EvalMetrics) -> Table:
         f"{o.harmed_n} event(s) that would have recovered untouched",
     )
     t.add_section()
-    t.add_row("[bold]net[/]", f"[bold]{rs(o.net_paise)}[/]", "incremental less all cost")
+    t.add_row(
+        "[bold]net[/]",
+        f"[bold]{rs(o.net_paise)}[/]",
+        "incremental, less spend, less recoveries the action destroyed",
+    )
     # Printed in paise, not rupees-per-rupee. The ratio is tiny by design -
     # recovery here costs a few paise of messaging per rupee returned - and at
     # three decimal places it rendered as "0.000" directly beside a caption

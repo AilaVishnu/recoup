@@ -151,3 +151,48 @@ def test_an_arm_of_untouched_events_does_not_report_a_perfect_rate():
         "an arm Recoup never touched should show the control arm ahead, not a "
         "vacuous 100% from an empty per-protocol denominator"
     )
+
+
+def test_net_subtracts_recoveries_the_action_destroyed():
+    """The report prints harm as a cost line, so net must actually subtract it.
+
+    It did not. `net` was incremental minus spend, while "recoveries destroyed"
+    sat directly above it in the cost block captioned as part of "all cost". That
+    reads correctly only while harm is zero, which is how a figure like this
+    survives review - right by luck, wrong by construction, and overstating the
+    moment an action starts costing recoveries.
+
+    The two sets are disjoint. An AGENT attribution is a recovery that happened
+    only because Recoup acted; a harmed event is a recovery that failed to happen
+    only because Recoup acted. Subtracting the full amount double-counts nothing.
+    """
+    rows = []
+    # Two events Recoup caused to recover.
+    for i in range(2):
+        rows.append(
+            outcome(
+                eid=f"t_gain_{i}",
+                treated=True,
+                recovered=True,
+                attribution=Attribution.AGENT,
+                amount_paise=10_000_00,
+            )
+        )
+    # One the action destroyed: it would have recovered untouched.
+    harmed = outcome(eid="t_harm", treated=True, recovered=False, amount_paise=4_000_00)
+    harmed = type(harmed)(**{**harmed.__dict__, "roll": 0.1, "organic_p": 0.9})
+    rows.append(harmed)
+    rows += [
+        outcome(eid=f"c_{i}", cohort=Cohort.CONTROL, treated=False, recovered=i < 1)
+        for i in range(4)
+    ]
+
+    overall = build_segments(rows)["overall"]
+
+    assert overall.harmed_n == 1, "fixture must actually produce a harmed event"
+    assert overall.harmed_paise == 4_000_00
+    assert overall.net_paise == (
+        overall.incremental_recovered_paise
+        - overall.cost_paise
+        - overall.harmed_paise
+    ), "net must subtract destroyed recoveries, not merely print them"
