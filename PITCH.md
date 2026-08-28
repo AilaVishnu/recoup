@@ -154,13 +154,14 @@ is a bad five minutes, and it is avoidable.
 ## 4:40 – 5:10 · The model didn't win, and I can prove it
 
 > Last thing. I gave Gemini the 161 events the taxonomy couldn't settle. It spent
-> eight thousand rupees on discounts and came back with **six and a half points
-> of lift where the lookup table alone got seven and a half.**
+> **six thousand rupees** on discounts and came back with **six point eight
+> points of lift, where the lookup table alone got seven point two.**
 >
-> That difference is inside the error bars, so I'm not claiming the model made it
-> worse. What I'm claiming is that I can *tell* — and cannibalisation came back at
-> zero, so every rupee of discount went to someone who genuinely wasn't coming
-> back. The bounds worked. The model just didn't beat the table.
+> That difference is a fraction of the error bar, so I'm not claiming the model
+> made it worse. What I'm claiming is that I can *tell* — and cannibalisation came
+> back at **zero against six thousand committed**, so every rupee of discount went
+> to someone who genuinely wasn't coming back. The bounds worked. The model just
+> didn't beat the table.
 >
 > A recovery system that can't tell you whether its most expensive component is
 > earning its place isn't measuring anything.

@@ -184,8 +184,21 @@ details.aside .note { margin-top: var(--s-2); }
         "-0.0pp", which is not a number anyone writes down - and it appeared in
         both places the interval is quoted.
       #}
-      {% set lo = 0.0 if (ci.ci_low * 100)|abs < 0.005 else (ci.ci_low * 100)|round(2) %}
-      {% set hi = 0.0 if (ci.ci_high * 100)|abs < 0.005 else (ci.ci_high * 100)|round(2) %}
+      {#
+        One decimal, matching scripts/run_eval.py, so the two surfaces quote the
+        same interval - a reader comparing the terminal to this page should not
+        find "-0.5" on one and "-0.48" on the other and have to work out which is
+        authoritative.
+
+        Two decimals only when one place would round a real bound to zero, which
+        is how "-0.0pp" appeared here before: a genuine -0.02 is not zero and
+        must not print as if it were. Anything truly inside half a basis point
+        prints as a clean 0.0.
+      #}
+      {% set lo_raw = ci.ci_low * 100 %}
+      {% set hi_raw = ci.ci_high * 100 %}
+      {% set lo = 0.0 if lo_raw|abs < 0.005 else (lo_raw|round(2) if lo_raw|abs < 0.05 else lo_raw|round(1)) %}
+      {% set hi = 0.0 if hi_raw|abs < 0.005 else (hi_raw|round(2) if hi_raw|abs < 0.05 else hi_raw|round(1)) %}
       {% set point = (ci.lift * 100)|round(1) if ci.lift is not none else none %}
       <p class="caveat">
         <b>Event-weighted lift
