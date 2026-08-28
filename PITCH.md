@@ -111,18 +111,23 @@ is a bad five minutes, and it is avoidable.
 
 *Switch to the terminal showing the eval report.*
 
-> Gross recovery is 31.7%. The control arm recovered 21.8% **with no help at
-> all**. So the honest number is the difference: **nine point nine percentage
-> points**, about ₹1.2 lakh that would not have come back.
+> Gross recovery is 29.4%. The control arm recovered 21.8% **with no help at
+> all**. So the honest number is the difference: **seven point six percentage
+> points**, about ₹1.1 lakh that would not have come back.
 >
-> A tool without a holdout would have put 31.7% on the slide.
+> A tool without a holdout would have put 29.4% on the slide.
 
 *Point at the CI.*
 
-> The interval is plus two point two to plus seventeen point six, so it clears
-> zero — but only just, and it did *not* clear zero a day ago. That changed when
-> I corrected the taxonomy, not because the system got better, and I'd rather say
-> that than let you assume the improvement was mine.
+> And the interval includes zero. At 600 events this sample can't rule out no
+> effect, and the report leads with that rather than the point estimate.
+>
+> It cleared zero yesterday, and I broke it myself. I'd been treating a payment
+> retry as invisible to the customer — but you can't silently re-present a card
+> in India without a mandate, and a UPI retry is a collect that rings their
+> phone. Sixty-three of my retries were firing after midnight. Fixing that cost
+> me two and a half points of lift. **A bound that only holds while you miscount
+> what it governs isn't a bound.**
 >
 > The rupee figures are simulated — I don't have a real merchant's post-failure
 > customer behaviour. What's *real* is the decision quality, and the pipeline is

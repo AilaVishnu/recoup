@@ -158,8 +158,21 @@ def test_no_contact_during_quiet_hours(session):
     assert not named(r, "quiet_hours").passed
 
 
-def test_silent_retries_are_allowed_during_quiet_hours(session):
-    """A retry is not a message. Blocking it overnight would be pointless."""
+def test_a_retry_is_customer_contact_and_respects_quiet_hours(session):
+    """The inverse of what this test used to assert, because the premise was wrong.
+
+    It previously read "a retry is not a message, blocking it overnight would be
+    pointless" and asserted quiet_hours passed. That holds only for a genuinely
+    silent re-presentment, which needs a registered mandate. Without one, RBI's
+    additional-factor rules put a card retry in front of an OTP prompt the
+    cardholder has to answer, and a UPI retry is a collect request that pushes a
+    notification to their phone. This dataset models no mandates, so every retry
+    is something the customer experiences.
+
+    Left unchallenged, that belief put 63 of 191 retries into the 21:00-08:00
+    window, the earliest at 00:09 IST - past a quiet-hours rule that existed, was
+    enforced, and simply never saw them.
+    """
     three_am_ist = datetime(2026, 3, 3, 21, 30)
     r = review(
         ctx(
@@ -170,7 +183,9 @@ def test_silent_retries_are_allowed_during_quiet_hours(session):
         ),
         session,
     )
-    assert named(r, "quiet_hours").passed
+    assert not named(r, "quiet_hours").passed, (
+        "a retry at 03:00 IST reaches the customer and must be deferred"
+    )
 
 
 def test_contact_cap_counts_across_all_events_not_per_event(session):

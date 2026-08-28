@@ -356,14 +356,14 @@ Against real traffic the priors would be wrong on day one, which is what
 
 | | |
 |---|---|
-| **Incremental recovery rate** | **+9.9pp** (95% CI +2.2 … +17.6) |
-| Incremental recovered | ₹1,21,139 across 53 events |
-| Gross recovery rate | 31.7% — *what a system without a holdout would claim* |
+| **Incremental recovery rate** | **+7.6pp** (95% CI −0.0 … +15.2) |
+| Incremental recovered | ₹1,11,933 across 43 events |
+| Gross recovery rate | 29.4% — *what a system without a holdout would claim* |
 | Control arm recovery rate | 21.8% — *with no help at all* |
 | Cost | ₹21 |
 | Cannibalisation | ₹0 |
 | Events harmed | 0 |
-| Sensitivity range | +2.3pp (pessimistic) → +14.7pp (optimistic) |
+| Sensitivity range | +2.1pp (pessimistic) → +11.7pp (optimistic) |
 | Decisions | 600 taxonomy, 0 model |
 
 Taxonomy-only, which is what a reviewer reproduces from a clean checkout with no
@@ -625,3 +625,36 @@ fabricated number in the seed set.
 
 That check failing would not be cosmetic. It would mean a synthetic dataset had
 begun emailing real inboxes at addresses that happen to exist.
+
+
+---
+
+## 17. The retry was never silent
+
+Recoup classified `RETRY_PAYMENT` as invisible to the customer, and therefore
+exempt from quiet hours and the weekly contact cap. The stated reasoning was
+sound — counting a silent re-presentment against a fatigue cap would make the
+system refuse to retry a bank outage because it had emailed twice last week.
+
+The premise was wrong. A silent re-presentment requires a registered mandate.
+Without one, RBI's additional-factor rules put a card retry in front of an OTP
+prompt the cardholder must answer, and a UPI retry is a collect request that
+pushes a notification to their phone. This dataset models no mandates at all, so
+every retry Recoup issued was something the customer experienced.
+
+The cost was measurable: **63 of 191 retries fired between 21:00 and 08:00 IST**,
+the earliest at 00:09. Quiet hours existed, the scheduler respected them, and the
+retry path walked past both because it was classified as invisible. After the
+fix: **zero**.
+
+Two second-order corrections came with it. The executor released its fatigue-slot
+reservation whenever an action composed no outbox message, which for a retry is
+always — so a slot was reserved and immediately handed back. Release is now keyed
+on the action having *failed*, which is the thing it was meant to detect. And two
+tests asserted the old belief in their names; both were rewritten to assert the
+inverse rather than deleted, because the reasoning behind them is worth keeping
+next to the correction.
+
+The headline fell from +9.9pp to +7.6pp and the interval stopped excluding zero.
+That is the correct direction for this fix: a bound that only holds while you
+miscount what it governs is not a bound.

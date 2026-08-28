@@ -183,14 +183,14 @@ Seed 42 · 600 events · ₹34.5L at risk
 
 | | |
 |---|---|
-| **Incremental recovery rate** | **+9.9pp** (95% CI +2.2 … +17.6) |
-| Incremental recovered | **₹1,21,139** across 53 events |
-| Gross recovery rate | 31.7% — *what a system without a holdout would claim* |
+| **Incremental recovery rate** | **+7.6pp** (95% CI −0.0 … +15.2) |
+| Incremental recovered | **₹1,11,933** across 43 events |
+| Gross recovery rate | 29.4% — *what a system without a holdout would claim* |
 | Control arm | 21.8% — *recovered with no help at all* |
-| Net after cost | ₹1,21,118 |
+| Net after cost | ₹1,11,912 |
 | Cannibalisation | ₹0 |
 | Events harmed | 0 |
-| Sensitivity range | +2.3pp (pessimistic) → +14.7pp (optimistic) |
+| Sensitivity range | +2.1pp (pessimistic) → +11.7pp (optimistic) |
 
 > **These figures moved when the taxonomy was corrected, and not because the
 > system got better.** The previous headline (+7.2pp) was measured on a dataset
@@ -210,14 +210,24 @@ require a key and are therefore not something a reviewer can check by cloning.
 Keys upgrade simulated execution to real Razorpay calls and taxonomy-only
 decisions to model-assisted ones. They do not gate the run.
 
-The gap between 31.7% and +9.9pp is the entire point of this project. A recovery
+The gap between 29.4% and +7.6pp is the entire point of this project. A recovery
 tool without a holdout would have reported the first number.
 
 **Caveats, stated rather than buried:**
 
-- **The interval now excludes zero** (+2.2pp at the low end), which the
-  previous one did not. That is a change in the data, not evidence that the
-  system improved — see the note above. The report leads with the interval rather
+- **The interval includes zero** (−0.0pp at the low end). At 600 events this
+  sample cannot rule out no effect, and the report leads with the interval
+  rather than the point estimate for that reason.
+- **The last change to this number cost 2.3 points, and was correct.** Recoup
+  used to treat a payment retry as invisible to the customer and therefore
+  exempt from quiet hours and the contact cap. That holds only for a re-presentment
+  against a registered mandate; without one, RBI's additional-factor rules put a
+  card retry in front of an OTP prompt and a UPI retry is a collect request that
+  rings the customer's phone. 63 of 191 retries were firing between 21:00 and
+  08:00 IST, the earliest at 00:09. Reclassifying them as contact defers them to
+  morning, past the timing windows the taxonomy says matter — so the headline
+  fell from +9.9pp to +7.6pp and the interval stopped excluding zero. A bound
+  that only holds while you miscount what it governs is not a bound. The report leads with the interval rather
   than the point estimate for that reason, and the dashboard says "behind" when
   the point estimate is behind.
 - **This number has moved several times and never once because a figure was

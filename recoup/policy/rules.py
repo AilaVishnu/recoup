@@ -308,10 +308,35 @@ CONTACT_ACTIONS = {
     ActionType.NUDGE,
     ActionType.NUDGE_WITH_INCENTIVE,
     ActionType.PAYMENT_LINK,
+    ActionType.RETRY_PAYMENT,
 }
-"""Actions the customer perceives. Silent retries are not contact and are not
-counted against the fatigue cap - conflating them would make the system refuse
-to retry a bank outage because it had sent two emails last week."""
+"""Actions the customer perceives - which, in India, includes the retry.
+
+RETRY_PAYMENT was excluded here on the reasoning that a re-presentment is silent
+and that counting it would make Recoup refuse to retry a bank outage because it
+had sent two emails last week. The reasoning was sound and the premise was
+wrong.
+
+A silent re-presentment requires a registered mandate. Without one, RBI's
+additional-factor rules mean a card retry needs the cardholder in front of an
+OTP prompt, and a UPI retry is a collect request that pushes a notification to
+their phone. Neither is silent, and this dataset models no mandates at all - so
+every retry Recoup issues is something the customer experiences.
+
+The cost of getting that wrong was measurable: 63 of 191 retries fired between
+21:00 and 08:00 IST, the earliest at 00:09. Quiet hours existed, the scheduler
+respected them, and the retry path walked straight past both because it was
+classified as invisible.
+
+The original objection still stands on its merits, and it is now a real
+trade-off rather than a free exemption: a customer near their weekly cap may not
+get a retry they would have benefited from. That is the correct direction to
+fail. The alternative is a system whose stated bound on customer contact is not
+a bound on customer contact.
+"""
+
+SILENT_ACTIONS = {ActionType.NO_ACTION, ActionType.ESCALATE_TO_HUMAN}
+"""Actions with no external effect at all. The only genuinely invisible ones."""
 
 
 # ---------------------------------------------------------------------------

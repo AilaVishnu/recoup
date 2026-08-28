@@ -558,11 +558,20 @@ def execute(
             error=str(exc),
         )
 
-    if reservation is not None and effect.message is None:
-        # Nothing reached the customer, so the slot goes back. Deleting a
-        # reservation is safe in a way that failing to create one is not: the
-        # worst case here is one extra nudge this week, against a customer being
-        # messaged an unbounded number of times in the other direction.
+    # Release the slot only when the action FAILED - not merely when it composed
+    # no message of Recoup's own.
+    #
+    # Those are different things, and treating them as one silently un-counted
+    # every retry. A retry writes no outbox row because Recoup composes nothing;
+    # the re-presentment still reaches the customer as an OTP prompt or a UPI
+    # collect notification, which is why RETRY_PAYMENT is in CONTACT_ACTIONS at
+    # all. Keying the release on `effect.message is None` reserved the slot and
+    # then handed it straight back.
+    #
+    # Deleting a reservation stays safe in a way that failing to create one is
+    # not: the worst case here is one extra touch this week, against a customer
+    # being contacted an unbounded number of times in the other direction.
+    if reservation is not None and effect.status is ActionStatus.FAILED:
         session.delete(reservation)
         session.flush()
 

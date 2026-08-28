@@ -255,18 +255,29 @@ def test_a_discount_on_a_technical_failure_is_refused_by_the_executor(no_keys, s
 # --- ContactLog is written for contact, and only for contact ---------------
 
 
-def test_silent_retry_writes_no_contact_log(no_keys, outbox_file, session):
-    """A retry is not a message. Counting it against the fatigue cap would make
-    Recoup refuse to retry a bank outage because it emailed twice last week."""
+def test_a_retry_costs_no_channel_spend_but_is_still_a_customer_touch(no_keys, outbox_file, session):
+    """A retry sends no message of Recoup's, yet the customer still hears about it.
+
+    Two different questions that were previously answered as one. Recoup pays no
+    channel cost and writes no outbox row for a retry - it composes nothing. But
+    the re-presentment itself reaches the customer, through an OTP prompt or a UPI
+    collect notification, so it counts against the fatigue cap and respects quiet
+    hours (see recoup/policy/rules.py:CONTACT_ACTIONS).
+
+    The old version of this test asserted both counters stayed at zero, which
+    conflated "Recoup sent nothing" with "the customer was not contacted".
+    """
     customer, event, decision = make(
         session, reason_code="bank_not_available", action_type=ActionType.RETRY_PAYMENT
     )
     run = execute(session, decision, allowed(event, customer, decision, NOW), event, customer, NOW)
 
+    contacts, spend = counts(session)
     assert run.razorpay_ref.startswith("order_dry_")
-    assert counts(session) == (0, 0)
-    assert outbox.read_all(outbox_file) == []
-    assert run.channel_cost_paise == 0
+    assert contacts == 1, "the re-presentment reaches the customer; it is a touch"
+    assert spend == 0, "no incentive was committed"
+    assert outbox.read_all(outbox_file) == [], "Recoup composed no message of its own"
+    assert run.channel_cost_paise == 0, "and therefore paid no channel cost"
 
 
 def test_nudge_writes_exactly_one_contact_log(no_keys, outbox_file, session):
