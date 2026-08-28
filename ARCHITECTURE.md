@@ -323,7 +323,7 @@ This section is the one to read before believing any number.
 failure reason, respects its bounds, refuses to retry risk declines, times
 liquidity retries sensibly, defers out of quiet hours, and never exceeds budget.
 These are properties of the code and hold regardless of any simulation
-parameter. 261 tests cover them, including 27 adversarial bypass attempts.
+parameter. 263 tests cover them, including 27 adversarial bypass attempts.
 
 **Simulated — the rupee figures.** Recoup has no access to a real merchant's
 post-failure customer behaviour, so outcomes come from `seed/world.py`. Its lift
@@ -489,7 +489,7 @@ python scripts/run_eval.py        # grade it honestly
 python scripts/serve.py           # dashboard on :8000
 python scripts/robustness.py      # five datasets
 python scripts/verify_live.py     # one real Payment Link
-pytest -q                         # 261 tests
+pytest -q                         # 263 tests
 ```
 
 Recoup refuses to start against a `rzp_live_` key. It sends messages and spends

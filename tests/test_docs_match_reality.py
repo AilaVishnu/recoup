@@ -147,3 +147,47 @@ def test_the_holdout_fraction_is_right():
         if int(m.group(1)) != pct
     ]
     assert not wrong, "\n  ".join(wrong)
+
+
+def test_the_quoted_bounds_match_the_policy_engine():
+    """The README lists what Recoup may not do, in rupees. Those are the numbers.
+
+    This list is the project's second headline claim, and a reader comparing it
+    against recoup/policy/rules.py is exactly the reader worth convincing. A
+    README that says 15% while the engine enforces 20% would be worse than one
+    that said nothing, because it invites the check and then fails it.
+    """
+    from recoup.policy.rules import DEFAULT_BOUNDS as b
+
+    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    expectations = [
+        ("discount fraction", b.max_incentive_fraction * 100, r"(\d+)% of order value"),
+        ("discount ceiling", b.max_incentive_paise // 100, r"or ₹([\d,]+), whichever binds"),
+        ("daily budget", b.daily_incentive_budget_paise // 100, r"₹([\d,]+)/day incentive budget"),
+        ("autonomy limit", b.human_approval_above_paise // 100, r"more than ₹([\d,]+) of exposure"),
+        ("contact cap", b.max_contacts_per_customer_per_week, r"more than (\d+) times in 7 days"),
+    ]
+
+    wrong: list[str] = []
+    for label, actual, pattern in expectations:
+        m = re.search(pattern, readme)
+        if m is None:
+            wrong.append(f"{label}: README no longer states this bound")
+            continue
+        claimed = int(m.group(1).replace(",", ""))
+        if claimed != int(actual):
+            wrong.append(f"{label}: README says {claimed}, engine enforces {int(actual)}")
+
+    assert not wrong, "\n  ".join(wrong)
+
+
+def test_only_two_reason_codes_may_spend_money():
+    """Quoted in every document, and the constraint the domain argument rests on."""
+    from recoup.taxonomy import all_codes, profile_for
+
+    eligible = [c for c in all_codes() if profile_for(c).incentive_eligible]
+    assert len(eligible) == 2, (
+        f"{len(eligible)} reason codes now permit an incentive ({eligible}); the "
+        "docs say two, and the claim that a discount can only move an "
+        "intent-driven failure is built on it"
+    )
