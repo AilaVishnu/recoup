@@ -292,53 +292,39 @@ assumptions fixed.
 
 | | across 28 datasets |
 |---|---|
-| Lift range | **−4.0pp … +16.2pp** |
-| Median | **+7.7pp** |
-| Spread (sd) | 4.6pp |
-| Positive point estimate | **26 of 28** |
+| Lift range | **−1.0pp … +14.0pp** |
+| Median | **+7.4pp** |
+| Spread (sd) | 3.6pp |
+| Positive point estimate | **27 of 28** |
 | Interval excludes zero | **15 of 28** |
-| At or above +5pp | 21 of 28 |
 
-**The arm-difference estimator came out negative on two datasets** (seeds 5 and
-41). That matters more than the median does, and it is here rather than in a
-footnote.
+**One dataset came out negative** (seed 19). That belongs here rather than in a
+footnote — and so does the reason, because the unqualified sentence says
+something false. Seed 19 has the *highest control-arm recovery of all 28* at
+26.9%, and on it Recoup still caused 42 recoveries worth ₹99,860 against the
+frozen per-event counterfactual. The estimator went negative because the holdout
+recovered unusually well, not because the system failed.
 
-It also needs one qualification, because the unqualified sentence says something
-false. On both of those datasets Recoup *did* cause recoveries — 30 events and
-₹49,918 on seed 5, 25 events and ₹42,725 on seed 41, measured against the frozen
-per-event counterfactual. The estimator went negative because those control arms
-recovered unusually well, not because the system failed. By the exact causal
-measure, every one of the 28 datasets is positive.
-
-Which of those two facts you lead with is a real choice. The arm difference is
-the only quantity a live merchant could compute, so it is the honest headline —
-but reporting it without saying that the exact measure disagrees would leave a
-reader believing Recoup lost money on two datasets, and it did not.
-
-It also matters *how* it was found. The first version of this check ran five
-seeds, all five were positive, and this section previously said the direction held
-on every dataset. Widening to 28 found the counterexamples the smaller sample had
-missed — the claim had been true of the sample and false of the system, and
-nothing in the five-seed run hinted at the difference. A robustness check small
-enough to miss its own counterexamples is a lucky draw with a table around it.
-
-**Read the spread carefully — it is the estimator moving, not the system.**
+**Read the spread as the estimator moving, not the system.**
 
 | | across the same 28 datasets |
 |---|---|
-| Arm-difference lift | −4.0 … +16.2pp — **enormous** |
-| Events Recoup actually caused | 25 … 48 — **1.9× spread** |
+| Arm-difference lift | −1.0 … +14.0pp |
+| Events Recoup actually caused | **25 … 47 — a 1.9× spread** |
 
-The lowest-lift datasets are not the ones where Recoup did least; they are the
-ones whose *control arm recovered best*. The arm difference is the only quantity
-a real deployment could compute, and at a ~180-event holdout it is dominated by
-which way the holdout fell. The per-event causal count is far steadier — and it
-is exact only because the frozen roll supplies a counterfactual for every event,
-which a live merchant could never have.
+The arm difference is the only quantity a real deployment could compute, and at a
+~180-event holdout it is dominated by which way the holdout fell. The per-event
+causal count is far steadier — and exact *only* because the frozen roll supplies a
+counterfactual for every event, which a live merchant could never have.
 
 So the spread argues for a larger holdout or more events, not for distrusting the
-pipeline. `scripts/robustness.py` prints both numbers side by side for exactly
-this reason.
+pipeline. `scripts/robustness.py` prints both numbers side by side for this
+reason.
+
+An earlier version of this section ran five seeds, all positive, and said the
+direction held on every dataset. Widening to 28 found the counterexamples the
+smaller sample had missed. A robustness check small enough to miss its own
+counterexamples is a lucky draw with a table around it.
 
 The model is disabled during these runs. Letting a non-deterministic component
 vary alongside the data would leave no way to say which one moved a lift.
