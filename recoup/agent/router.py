@@ -31,15 +31,23 @@ underdetermined. Four of them:
 
 Everything else routes to recoup/agent/rules_engine.py.
 
-Measured share on the seeded 600-event dataset: **20.7% routed to the model**
-(124 events), the other 476 settled by the taxonomy alone. The split by trigger:
+Measured share on the seeded 600-event dataset: **26.8% routed to the model**
+(161 events), the other 439 settled by the taxonomy alone. The split by trigger:
 
-    66.7%  taxonomy settles it            400 events   no model call
-    12.0%  below the action floor          72 events   no model call
+    68.5%  taxonomy settles it            411 events   no model call
+    12.5%  high stakes, unreviewed         75 events   -> model
      6.5%  incentive depth                 39 events   -> model
-     6.5%  high stakes, unreviewed         39 events   -> model
      4.7%  repeat attempt                  28 events   -> model
-     3.0%  conflicting signals             18 events   -> model
+     4.0%  below the action floor          24 events   no model call
+     3.2%  conflicting signals             19 events   -> model
+     0.7%  do-not-retry                     4 events   no model call
+
+These are counted from Decision rows, not predicted. An earlier version of this
+docstring claimed 20.7% from a run whose triggers were computed against
+different expected values - the attempt cap could not fire then, so more events
+cleared the action floor and fewer reached the high-stakes band. A share quoted
+in a comment drifts silently from the share the code produces; re-derive it with
+`python -m recoup.agent.router` after any change that moves scores.
      0.7%  do-not-retry                     4 events   no model call
 
 Rerun with `python -m recoup.agent.router` to recount against the current

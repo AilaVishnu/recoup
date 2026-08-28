@@ -482,7 +482,9 @@ python scripts/seed.py            # build the synthetic merchant
 python scripts/run_pipeline.py    # assess → decide → review → act
 python scripts/run_eval.py        # grade it honestly
 python scripts/serve.py           # dashboard on :8000
-pytest -q                         # 245 tests
+python scripts/robustness.py      # five datasets
+python scripts/verify_live.py     # one real Payment Link
+pytest -q                         # 252 tests
 ```
 
 Recoup refuses to start against a `rzp_live_` key. It sends messages and spends
@@ -522,3 +524,51 @@ job. The model did not waste money; it simply did not beat the table.
 That is the measurement this project exists to be able to make. A recovery
 system that cannot tell you whether its most expensive component is earning its
 place is not measuring anything.
+
+---
+
+## 16. Robustness and live verification
+
+### Does it hold on other data?
+
+Every figure above comes from seed 42. Reproducible is not the same as robust,
+so `scripts/robustness.py` re-runs seed → pipeline → resolve → measure on
+independent datasets. It is the companion to the sensitivity sweep: that varies
+the *assumptions* with the data fixed, this varies the *data* with the
+assumptions fixed.
+
+| seed | lift | 95% CI | gross | control |
+|---|---|---|---|---|
+| 1 | **+10.6pp** | +4.1 … +17.0 | 24.5% | 13.9% |
+| 7 | **+8.3pp** | +1.1 … +15.5 | 26.4% | 18.2% |
+| 42 | **+7.2pp** | −0.0 … +14.5 | 27.1% | 19.9% |
+| 99 | **+7.0pp** | −0.1 … +14.0 | 24.4% | 17.5% |
+| 2024 | **+1.2pp** | −6.0 … +8.4 | 22.9% | 21.7% |
+
+Positive on all five, median +7.2pp, spread 3.5pp. **But the magnitude moves
+roughly ninefold, and only two of the five intervals exclude zero.** That is
+evidence of a consistent *sign*, not of a reliable *effect size*, and the script
+prints it that way rather than reporting "5 of 5 positive" — those are different
+claims and quoting the flattering one is the failure this project is built to
+avoid.
+
+The model is disabled during these runs. Letting a non-deterministic component
+vary alongside the data would leave no way to say which one moved a lift.
+
+
+### The Razorpay path is verified against the live API
+
+`scripts/verify_live.py` creates one ₹499 Payment Link in test mode and reads it
+back — because every other check verifies that Recoup *would* call correctly,
+which is not the same claim as a 200 from the service.
+
+It also asserts the property that actually matters. Seeded customers carry
+fabricated emails and phone numbers, and Razorpay will send a Payment Link to
+whatever contact details it is handed, on its own schedule — outside quiet hours,
+the weekly contact cap and the cost ledger. So every link Recoup creates sets
+`notify.email`, `notify.sms` and `reminder_enable` to false, and the script reads
+those back off the created object rather than trusting the request carried them.
+Confirmed false on all three channels.
+
+That check failing would not be cosmetic. It would mean a synthetic dataset had
+begun emailing real inboxes at addresses that happen to exist.
