@@ -552,6 +552,24 @@ prints it that way rather than reporting "5 of 5 positive" — those are differe
 claims and quoting the flattering one is the failure this project is built to
 avoid.
 
+**Read that spread carefully — it is the estimator moving, not the system.**
+
+| | across the five datasets |
+|---|---|
+| Arm-difference lift | +1.2 … +10.6pp — **9× spread** |
+| Events Recoup actually caused | 30 … 46 — **1.5× spread** |
+
+The lowest-lift dataset is not the one where Recoup did least; it is the one
+whose *control arm recovered best* (21.7% against 13.9% at the other end). The
+arm difference is the only quantity a real deployment could compute, and at a
+180-event holdout it is noisy. The per-event causal count is stable — and it is
+exact only because the frozen roll gives a counterfactual for every event, which
+a live merchant could never have.
+
+So the spread argues for a larger holdout or more events, not for distrusting
+the pipeline. `scripts/robustness.py` prints both numbers side by side for
+exactly this reason.
+
 The model is disabled during these runs. Letting a non-deterministic component
 vary alongside the data would leave no way to say which one moved a lift.
 
