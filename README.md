@@ -213,31 +213,34 @@ tool without a holdout would have reported the first number.
 
 With Gemini deciding the 161 events the taxonomy could not settle on its own:
 
-| | Rules only | With the model |
+| | Taxonomy only | With the model |
 |---|---|---|
-| Incremental lift | **+7.5pp** | **+6.5pp** |
-| 95% CI | +0.2 … +14.7 | −0.7 … +13.8 |
-| Incentive committed | ₹0 | **₹8,307** |
-| Incentive redeemed | ₹0 | ₹784 |
+| Incremental lift | **+7.2pp** | **+6.8pp** |
+| 95% CI | −0.0 … +14.5 | −0.5 … +14.0 |
+| Events caused | 46 | 44 |
+| Incentive committed | ₹0 | **₹6,279** |
+| Incentive redeemed | ₹0 | ₹1,143 |
 | Cannibalisation | ₹0 | **₹0** |
-| Cost per incremental rupee | 0.02p | **0.88p** |
+| Cost per incremental rupee | 0.02p | **1.20p** |
+| Decisions by the model | 0 | 161 of 600 |
 
 The model was handed every event the deterministic path found genuinely
-ambiguous, proposed ₹8,307 of discounts, and produced a *slightly lower*
+ambiguous, committed ₹6,279 of discount, and returned *slightly less*
 incremental lift than the taxonomy managed alone.
 
-Two things must be said before that becomes a claim. The difference is well
-inside the ±7pp interval, so this is one sample rather than a result. And it is
-not like-for-like: incentives are only ever proposed on the model path, so the
-model was attempting something the rules engine never tries at all.
+Two qualifications belong beside that, not below it. The gap is a fraction of a
+±7pp interval, so this is one sample and not a finding. And it is not
+like-for-like: incentives are only ever proposed on the model path, so the model
+was attempting something the rules engine never tries at all.
 
-But cannibalisation came back at **₹0** — every discount went to a customer who
-would not otherwise have paid. The eligibility rule and the EV hurdle did their
-job. The model did not waste money; it simply did not beat the table.
+But cannibalisation came back at **₹0** against ₹6,279 committed. Every discount
+reached a customer who would not otherwise have paid — the eligibility rule and
+the EV hurdle held. The model did not waste money; it simply did not beat the
+table.
 
 That is the measurement this project exists to be able to make. A recovery
-system that cannot tell you whether its most expensive component is earning its
-place is not measuring anything.
+system that cannot tell you whether its most expensive component earns its place
+is not measuring anything.
 
 - **Cannibalisation is ₹0 and currently cannot be otherwise** — incentives are
   only proposed on the LLM path, so without an API key the metric is implemented

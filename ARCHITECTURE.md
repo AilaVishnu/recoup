@@ -382,11 +382,12 @@ Reproducible from a clean checkout with no keys configured.
   the headline moved *between identical runs*. Figures published before that
   commit are not reproducible and should not be compared with these — which is
   why this one is quoted alongside a fixed epoch and a test that enforces it.
-- **Cannibalisation is ₹0, and this time it was measured rather than
-  unexercised.** ₹8,307 of discount was committed and ₹784 redeemed, and none of
-  it landed on a customer who would have paid anyway. Earlier runs reported ₹0
-  because no incentive was ever proposed; this one reports ₹0 because the
-  eligibility rule and the EV hurdle held.
+- **Cannibalisation is ₹0, and on the model-live run that was measured rather
+  than unexercised.** With the model deciding, ₹6,279 of discount was committed
+  and ₹1,143 redeemed, and none of it landed on a customer who would have paid
+  anyway (§15). Taxonomy-only runs report ₹0 for a weaker reason — the rules
+  engine never proposes an incentive at all, so the metric has nothing to
+  measure.
 - Roughly 70% of at-risk *value* sits in `invoice_overdue`, which is 11.7% of
   events. Results are segmented by event kind so that tail cannot flatter the
   headline.
@@ -504,31 +505,34 @@ structurally impossible rather than merely intended.
 
 With Gemini deciding the 161 events the taxonomy could not settle on its own:
 
-| | Rules only | With the model |
+| | Taxonomy only | With the model |
 |---|---|---|
-| Incremental lift | **+7.5pp** | **+6.5pp** |
-| 95% CI | +0.2 … +14.7 | −0.7 … +13.8 |
-| Incentive committed | ₹0 | **₹8,307** |
-| Incentive redeemed | ₹0 | ₹784 |
+| Incremental lift | **+7.2pp** | **+6.8pp** |
+| 95% CI | −0.0 … +14.5 | −0.5 … +14.0 |
+| Events caused | 46 | 44 |
+| Incentive committed | ₹0 | **₹6,279** |
+| Incentive redeemed | ₹0 | ₹1,143 |
 | Cannibalisation | ₹0 | **₹0** |
-| Cost per incremental rupee | 0.02p | **0.88p** |
+| Cost per incremental rupee | 0.02p | **1.20p** |
+| Decisions by the model | 0 | 161 of 600 |
 
 The model was handed every event the deterministic path found genuinely
-ambiguous, proposed ₹8,307 of discounts, and produced a *slightly lower*
+ambiguous, committed ₹6,279 of discount, and returned *slightly less*
 incremental lift than the taxonomy managed alone.
 
-Two things must be said before that becomes a claim. The difference is well
-inside the ±7pp interval, so this is one sample rather than a result. And it is
-not like-for-like: incentives are only ever proposed on the model path, so the
-model was attempting something the rules engine never tries at all.
+Two qualifications belong beside that, not below it. The gap is a fraction of a
+±7pp interval, so this is one sample and not a finding. And it is not
+like-for-like: incentives are only ever proposed on the model path, so the model
+was attempting something the rules engine never tries at all.
 
-But cannibalisation came back at **₹0** — every discount went to a customer who
-would not otherwise have paid. The eligibility rule and the EV hurdle did their
-job. The model did not waste money; it simply did not beat the table.
+But cannibalisation came back at **₹0** against ₹6,279 committed. Every discount
+reached a customer who would not otherwise have paid — the eligibility rule and
+the EV hurdle held. The model did not waste money; it simply did not beat the
+table.
 
 That is the measurement this project exists to be able to make. A recovery
-system that cannot tell you whether its most expensive component is earning its
-place is not measuring anything.
+system that cannot tell you whether its most expensive component earns its place
+is not measuring anything.
 
 ---
 
