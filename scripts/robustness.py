@@ -1,16 +1,28 @@
 """Does the result survive a different dataset?
 
-    python scripts/robustness.py --seeds 1 7 42 99 2024
+    python scripts/robustness.py                 # 28 datasets
+    python scripts/robustness.py --seeds 1 7 42  # or pick your own
 
-Every figure this project reports comes from seed 42. That is reproducible,
-which is not the same as robust: a single synthetic dataset can carry a result
-that exists only in its own particular draw of customers, amounts and rolls.
+Every headline figure this project reports comes from seed 42. That is
+reproducible, which is not the same as robust: a single synthetic dataset can
+carry a result that exists only in its own particular draw of customers, amounts
+and rolls.
 
-So this re-runs the whole thing - seed, pipeline, resolve, measure - on several
+So this re-runs the whole thing - seed, pipeline, resolve, measure - on 28
 independent datasets and reports the spread. It is the natural companion to the
 sensitivity sweep in recoup/eval/report.py: that one varies the *assumptions*
 with the data held fixed, this one varies the *data* with the assumptions held
 fixed. A result needs to survive both.
+
+Twenty-eight rather than a handful, for a reason worth stating plainly. The
+first version of this script ran five seeds, all five came out positive, and the
+documents duly said the direction held on every dataset. Widening to 28 turned
+up two negative ones the smaller sample had simply missed. The claim had been
+true of the sample and false of the system, and nothing about the five-seed run
+hinted at the difference.
+
+A robustness check small enough to miss its own counterexamples is a lucky draw
+with a table around it.
 
 What it deliberately does not do
 --------------------------------
@@ -111,7 +123,18 @@ def run_one(seed: int, events: int) -> dict | None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Re-run Recoup across several datasets.")
-    ap.add_argument("--seeds", type=int, nargs="+", default=[1, 7, 42, 99, 2024])
+    # Twenty-eight by default, not five. Five was the original set, and it happened
+    # to contain no negative dataset - so it supported "positive on every dataset",
+    # which twenty-eight does not: seeds 5 and 41 come out below zero. A sample
+    # small enough to miss its own counterexamples is not a robustness check, it
+    # is a lucky draw with a table around it.
+    ap.add_argument(
+        "--seeds",
+        type=int,
+        nargs="+",
+        default=[1, 2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 42, 47,
+                 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 99, 2024],
+    )
     ap.add_argument("--events", type=int, default=600)
     args = ap.parse_args()
 

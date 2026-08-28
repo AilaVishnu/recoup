@@ -251,44 +251,48 @@ is not measuring anything.
 
 ### Does it hold on other data?
 
-Every figure above comes from seed 42. Reproducible is not the same as robust,
-so `scripts/robustness.py` re-runs seed → pipeline → resolve → measure on
-independent datasets. It is the companion to the sensitivity sweep: that varies
+Every headline figure comes from seed 42. Reproducible is not the same as robust,
+so `scripts/robustness.py` re-runs seed → pipeline → resolve → measure on **28
+independent datasets**. It is the companion to the sensitivity sweep: that varies
 the *assumptions* with the data fixed, this varies the *data* with the
 assumptions fixed.
 
-| seed | lift | 95% CI | gross | control |
-|---|---|---|---|---|
-| 1 | **+10.6pp** | +4.1 … +17.0 | 24.5% | 13.9% |
-| 7 | **+8.3pp** | +1.1 … +15.5 | 26.4% | 18.2% |
-| 42 | **+7.2pp** | −0.0 … +14.5 | 27.1% | 19.9% |
-| 99 | **+7.0pp** | −0.1 … +14.0 | 24.4% | 17.5% |
-| 2024 | **+1.2pp** | −6.0 … +8.4 | 22.9% | 21.7% |
-
-Positive on all five, median +7.2pp, spread 3.5pp. **But the magnitude moves
-roughly ninefold, and only two of the five intervals exclude zero.** That is
-evidence of a consistent *sign*, not of a reliable *effect size*, and the script
-prints it that way rather than reporting "5 of 5 positive" — those are different
-claims and quoting the flattering one is the failure this project is built to
-avoid.
-
-**Read that spread carefully — it is the estimator moving, not the system.**
-
-| | across the five datasets |
+| | across 28 datasets |
 |---|---|
-| Arm-difference lift | +1.2 … +10.6pp — **9× spread** |
-| Events Recoup actually caused | 30 … 46 — **1.5× spread** |
+| Lift range | **−4.0pp … +16.2pp** |
+| Median | **+7.7pp** |
+| Spread (sd) | 4.6pp |
+| Positive point estimate | **26 of 28** |
+| Interval excludes zero | **15 of 28** |
+| At or above +5pp | 21 of 28 |
 
-The lowest-lift dataset is not the one where Recoup did least; it is the one
-whose *control arm recovered best* (21.7% against 13.9% at the other end). The
-arm difference is the only quantity a real deployment could compute, and at a
-180-event holdout it is noisy. The per-event causal count is stable — and it is
-exact only because the frozen roll gives a counterfactual for every event, which
-a live merchant could never have.
+**Two datasets came out negative** (seeds 5 and 41). That matters more than the
+median does, and it is here rather than in a footnote.
 
-So the spread argues for a larger holdout or more events, not for distrusting
-the pipeline. `scripts/robustness.py` prints both numbers side by side for
-exactly this reason.
+It also matters *how* it was found. The first version of this check ran five
+seeds, all five were positive, and this section previously said the direction held
+on every dataset. Widening to 28 found the counterexamples the smaller sample had
+missed — the claim had been true of the sample and false of the system, and
+nothing in the five-seed run hinted at the difference. A robustness check small
+enough to miss its own counterexamples is a lucky draw with a table around it.
+
+**Read the spread carefully — it is the estimator moving, not the system.**
+
+| | across the same 28 datasets |
+|---|---|
+| Arm-difference lift | −4.0 … +16.2pp — **enormous** |
+| Events Recoup actually caused | 25 … 48 — **1.9× spread** |
+
+The lowest-lift datasets are not the ones where Recoup did least; they are the
+ones whose *control arm recovered best*. The arm difference is the only quantity
+a real deployment could compute, and at a ~180-event holdout it is dominated by
+which way the holdout fell. The per-event causal count is far steadier — and it
+is exact only because the frozen roll supplies a counterfactual for every event,
+which a live merchant could never have.
+
+So the spread argues for a larger holdout or more events, not for distrusting the
+pipeline. `scripts/robustness.py` prints both numbers side by side for exactly
+this reason.
 
 The model is disabled during these runs. Letting a non-deterministic component
 vary alongside the data would leave no way to say which one moved a lift.
