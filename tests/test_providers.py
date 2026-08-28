@@ -64,18 +64,45 @@ def test_the_missing_key_note_names_the_variable_the_user_must_set(monkeypatch):
     assert "ANTHROPIC_API_KEY" in providers.missing_key_note()
 
 
-def test_a_local_endpoint_needs_no_key(monkeypatch):
-    """Ollama and LM Studio authenticate nothing. Demanding a key would lock them out."""
+@pytest.mark.parametrize(
+    "base_url", ["http://localhost:11434/v1", "http://127.0.0.1:1234/v1"]
+)
+def test_a_local_endpoint_needs_no_key(monkeypatch, base_url):
+    """Ollama and LM Studio authenticate nothing. Demanding a key locks them out."""
     monkeypatch.setattr(
         providers.config,
         "get_settings",
         lambda: SimpleNamespace(
-            llm_provider="openai",
-            llm_api_key="",
-            llm_base_url="http://localhost:11434/v1",
+            llm_provider="openai", llm_api_key="", llm_base_url=base_url
         ),
     )
     assert providers.key_available() is True
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "https://api.groq.com/openai/v1",
+        "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "https://openrouter.ai/api/v1",
+    ],
+)
+def test_a_remote_endpoint_without_a_key_is_not_reachable(monkeypatch, base_url):
+    """The carve-out is for localhost, not for every configured base_url.
+
+    Treating any base_url as key-free reported "decision model reachable" for a
+    Groq endpoint with an empty key - a false OK, which is worse than a failure
+    because it sends someone looking for the problem somewhere it is not.
+    """
+    monkeypatch.setattr(
+        providers.config,
+        "get_settings",
+        lambda: SimpleNamespace(
+            llm_provider="openai", llm_api_key="", llm_base_url=base_url
+        ),
+    )
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    assert providers.key_available() is False
 
 
 # ---------------------------------------------------------------------------

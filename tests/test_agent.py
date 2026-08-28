@@ -339,7 +339,11 @@ def test_brain_falls_back_to_rules_with_no_api_key(no_api_key):
     assert action is ActionType.NUDGE
     assert params["incentive_paise"] == 0
     assert "fell back to rules" in rationale
-    assert "ANTHROPIC_API_KEY" in rationale
+    # The note names whichever provider is configured, so the assertion asks for
+    # that rather than a fixed variable. Hardcoding ANTHROPIC_API_KEY here made
+    # this test fail the moment a developer pointed .env at a different provider
+    # - a test that reads the local environment is testing the environment.
+    assert f"no {providers._KEY_ENV[providers.active_provider()]}" in rationale
 
 
 @pytest.fixture

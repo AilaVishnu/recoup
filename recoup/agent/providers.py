@@ -262,8 +262,17 @@ def key_available() -> bool:
         os.environ[env_name] = key
         return True
 
-    # A local endpoint (Ollama, LM Studio) needs no key at all.
-    return bool(settings.llm_base_url) and active_provider() == "openai"
+    # A *local* endpoint (Ollama, LM Studio) authenticates nothing, so a missing
+    # key there is correct rather than missing. Any remote endpoint still needs
+    # one - treating every base_url as key-free reported "decision model
+    # reachable" for a Groq endpoint with an empty key, which is the precise
+    # false-OK this project fixed in .env.example a commit earlier: it sends
+    # someone looking for the problem somewhere it isn't.
+    base = (settings.llm_base_url or "").lower()
+    is_local = any(
+        host in base for host in ("localhost", "127.0.0.1", "0.0.0.0", "::1", "host.docker.internal")
+    )
+    return is_local and active_provider() == "openai"
 
 
 def missing_key_note() -> str:
