@@ -109,18 +109,18 @@ is a bad five minutes, and it is avoidable.
 
 *Switch to the terminal showing the eval report.*
 
-> Gross recovery is 27.4%. The control arm recovered 19.9% **with no help at
-> all**. So the honest number is the difference: **seven and a half percentage
-> points**, about ₹1.3 lakh that would not have come back.
+> Gross recovery is 26.4%. The control arm recovered 19.9% **with no help at
+> all**. So the honest number is the difference: **six and a half percentage
+> points**, about ₹92,000 that would not have come back.
 >
-> A tool without a holdout would have put 27.4% on the slide.
+> A tool without a holdout would have put 26.4% on the slide.
 
 *Point at the CI.*
 
-> And I have to say this: **the interval barely clears zero** — the low end is
-> plus nought point two. At 600 events that's a weak result, not a strong one,
-> and it wouldn't survive a smaller holdout. The report leads with the interval
-> rather than the point estimate for exactly that reason.
+> And I have to say this: **the interval includes zero** — it runs from minus
+> nought point seven. At 600 events this sample can't rule out no effect. The
+> report leads with the interval rather than the point estimate for exactly that
+> reason, and the dashboard says "behind" when the estimate is behind.
 >
 > The rupee figures are simulated — I don't have a real merchant's post-failure
 > customer behaviour. What's *real* is the decision quality, and the pipeline is
@@ -151,7 +151,23 @@ is a bad five minutes, and it is avoidable.
 
 ---
 
-## 4:40 – 5:00 · Close
+## 4:40 – 5:10 · The model didn't win, and I can prove it
+
+> Last thing. I gave Gemini the 161 events the taxonomy couldn't settle. It spent
+> eight thousand rupees on discounts and came back with **six and a half points
+> of lift where the lookup table alone got seven and a half.**
+>
+> That difference is inside the error bars, so I'm not claiming the model made it
+> worse. What I'm claiming is that I can *tell* — and cannibalisation came back at
+> zero, so every rupee of discount went to someone who genuinely wasn't coming
+> back. The bounds worked. The model just didn't beat the table.
+>
+> A recovery system that can't tell you whether its most expensive component is
+> earning its place isn't measuring anything.
+
+---
+
+## 5:10 – 5:30 · Close
 
 > The model is swappable — any OpenAI-compatible endpoint, or Anthropic, two
 > lines of config — and the policy engine never learns which one answered. A
@@ -173,6 +189,10 @@ chased an implausible number instead of shipping it, and that you published a
 figure that went *down* after you fixed your own code, is the strongest signal in
 five minutes of video.
 
-**Say "the low end is plus nought point two" out loud.** The interval clears zero
-by a hair, which is a weak result honestly reported rather than a strong one. A
-reviewer who works that out themselves will assume you hoped they wouldn't.
+**Say "the interval includes zero" out loud.** A reviewer who works that out
+themselves will assume you hoped they wouldn't.
+
+**The model-didn't-win section is the strongest 30 seconds you have.** Every
+other entry will claim their LLM helped. Being the one candidate who measured it,
+found it didn't, and said so on camera is worth more than a bigger number would
+have been. If you are over time, cut the provider paragraph in the close instead.

@@ -171,31 +171,68 @@ Seed 42 · 600 events · ₹34.5L at risk
 
 | | |
 |---|---|
-| **Incremental recovery rate** | **+7.5pp** (95% CI +0.2 … +14.7) |
-| Incremental recovered | **₹1.3L** across 47 events |
-| Gross recovery rate | 27.4% — *what a system without a holdout would claim* |
+| **Incremental recovery rate** | **+6.5pp** (95% CI −0.7 … +13.8) |
+| Incremental recovered | **₹91,830** across 43 events |
+| Gross recovery rate | 26.4% — *what a system without a holdout would claim* |
 | Control arm | 19.9% — *recovered with no help at all* |
+| Net after cost | ₹91,018 |
+| Cannibalisation | **₹0** — no discount reached a customer who'd have paid anyway |
 | Events harmed | 0 |
-| Sensitivity range | +2.3pp (pessimistic) → +9.8pp (optimistic) |
+| Sensitivity range | +2.5pp (pessimistic) → +9.6pp (optimistic) |
+| Decisions | 439 by the taxonomy, **161 by the model** |
 
-Reproducible from a clean checkout with **no keys configured at all**:
-`seed.py && run_pipeline.py && run_eval.py`. Keys upgrade simulated execution to
-real Razorpay calls and taxonomy-only decisions to model-assisted ones; they do
-not gate the run.
+Figures above are from a run with the model live. The pipeline also runs with
+**no keys configured at all** — `seed.py && run_pipeline.py && run_eval.py` on a
+clean checkout gives +7.5pp with every decision taken by the taxonomy. Keys
+upgrade simulated execution to real Razorpay calls and taxonomy-only decisions
+to model-assisted ones; they do not gate the run.
 
-The gap between 27.4% and +7.5pp is the entire point of this project. A recovery
+The gap between 26.4% and +6.5pp is the entire point of this project. A recovery
 tool without a holdout would have reported the first number.
 
 **Caveats, stated rather than buried:**
 
-- **The interval barely clears zero** (+0.2pp at the low end). At 600 events
-  this is a weak result, not a strong one, and it would not survive a much
-  smaller holdout. The report leads with the interval rather than the point
-  estimate for that reason.
-- **This number has moved twice, downward both times, and both moves were
-  fixes.** It read +7.9pp until an attempt cap that could never fire started
-  denying 13 events it should always have denied. A figure that only looks good
-  until you fix your own bugs is not a figure worth defending.
+- **The interval includes zero** (−0.7pp at the low end). At 600 events this
+  sample cannot rule out no effect. The report leads with the interval rather
+  than the point estimate for that reason, and the dashboard says "behind" when
+  the point estimate is behind.
+- **This number has moved three times and never once because a number was
+  massaged.** +7.9pp until an attempt cap that could never fire began denying 13
+  events it always should have; +7.5pp until the fatigue slot started being
+  reserved before the send; +6.5pp once the model was actually deciding rather
+  than falling back. A figure that only looks good until you fix your own bugs
+  is not worth defending.
+
+### The model did not beat the lookup table
+
+With Gemini deciding the 161 events the taxonomy could not settle on its own:
+
+| | Rules only | With the model |
+|---|---|---|
+| Incremental lift | **+7.5pp** | **+6.5pp** |
+| 95% CI | +0.2 … +14.7 | −0.7 … +13.8 |
+| Incentive committed | ₹0 | **₹8,307** |
+| Incentive redeemed | ₹0 | ₹784 |
+| Cannibalisation | ₹0 | **₹0** |
+| Cost per incremental rupee | 0.02p | **0.88p** |
+
+The model was handed every event the deterministic path found genuinely
+ambiguous, proposed ₹8,307 of discounts, and produced a *slightly lower*
+incremental lift than the taxonomy managed alone.
+
+Two things must be said before that becomes a claim. The difference is well
+inside the ±7pp interval, so this is one sample rather than a result. And it is
+not like-for-like: incentives are only ever proposed on the model path, so the
+model was attempting something the rules engine never tries at all.
+
+But cannibalisation came back at **₹0** — every discount went to a customer who
+would not otherwise have paid. The eligibility rule and the EV hurdle did their
+job. The model did not waste money; it simply did not beat the table.
+
+That is the measurement this project exists to be able to make. A recovery
+system that cannot tell you whether its most expensive component is earning its
+place is not measuring anything.
+
 - **Cannibalisation is ₹0 and currently cannot be otherwise** — incentives are
   only proposed on the LLM path, so without an API key the metric is implemented
   and tested but never exercised.

@@ -355,28 +355,33 @@ Against real traffic the priors would be wrong on day one, which is what
 
 | | |
 |---|---|
-| **Incremental recovery rate** | **+7.5pp** (95% CI +0.2 … +14.7) |
-| Incremental recovered | ₹1.3L across 47 events |
-| Gross recovery rate | 27.4% — *what a system without a holdout would claim* |
+| **Incremental recovery rate** | **+6.5pp** (95% CI −0.7 … +13.8) |
+| Incremental recovered | ₹91,830 across 43 events |
+| Gross recovery rate | 26.4% — *what a system without a holdout would claim* |
 | Control arm recovery rate | 19.9% — *with no help at all* |
-| Cost (channel) | ₹29 |
+| Cost | ₹812 (₹784 redeemed incentive + ₹28 channel) |
+| Cannibalisation | ₹0 |
 | Events harmed | 0 |
-| Sensitivity range | +2.3pp (pessimistic) → +9.8pp (optimistic) |
+| Sensitivity range | +2.5pp (pessimistic) → +9.6pp (optimistic) |
+| Decisions | 439 taxonomy, 161 model |
 
 Reproducible from a clean checkout with no keys configured.
 
 **Caveats, stated rather than buried:**
 
-- **The interval barely clears zero** (+0.2 … +14.7pp). At 600 events this is a
-  weak result rather than a strong one, and it would not survive a much smaller
-  holdout. The report leads with the interval rather than the point estimate.
-- **This figure has moved twice, downward both times, and both moves were
-  fixes** (§12, §12.1). It read +7.9pp until an attempt cap that could never
-  fire began denying 13 events it should always have denied.
-- **Cannibalisation is ₹0 and currently cannot be otherwise.** Incentives are
-  only ever proposed on the LLM path, and without `ANTHROPIC_API_KEY` every
-  decision falls back to the rules engine, which proposes plain nudges. That
-  metric is implemented and tested but has not been exercised end to end.
+- **The interval includes zero** (−0.7 … +13.8pp). At 600 events this sample
+  cannot rule out no effect. The report leads with the interval rather than the
+  point estimate, and the dashboard says "behind" when the estimate is behind.
+- **This figure has moved three times, never once because a number was
+  massaged** (§12, §12.1, §15). +7.9pp until an attempt cap that could never fire
+  began denying 13 events it always should have; +7.5pp until the fatigue slot
+  began being reserved before the send; +6.5pp once the model was genuinely
+  deciding rather than falling back to the taxonomy.
+- **Cannibalisation is ₹0, and this time it was measured rather than
+  unexercised.** ₹8,307 of discount was committed and ₹784 redeemed, and none of
+  it landed on a customer who would have paid anyway. Earlier runs reported ₹0
+  because no incentive was ever proposed; this one reports ₹0 because the
+  eligibility rule and the EV hurdle held.
 - Roughly 70% of at-risk *value* sits in `invoice_overdue`, which is 11.7% of
   events. Results are segmented by event kind so that tail cannot flatter the
   headline.
@@ -483,3 +488,37 @@ pytest -q                         # 245 tests
 Recoup refuses to start against a `rzp_live_` key. It sends messages and spends
 money; a project that should only ever run in test mode ought to make that
 structurally impossible rather than merely intended.
+
+---
+
+## 15. Did the model earn its place?
+
+### The model did not beat the lookup table
+
+With Gemini deciding the 161 events the taxonomy could not settle on its own:
+
+| | Rules only | With the model |
+|---|---|---|
+| Incremental lift | **+7.5pp** | **+6.5pp** |
+| 95% CI | +0.2 … +14.7 | −0.7 … +13.8 |
+| Incentive committed | ₹0 | **₹8,307** |
+| Incentive redeemed | ₹0 | ₹784 |
+| Cannibalisation | ₹0 | **₹0** |
+| Cost per incremental rupee | 0.02p | **0.88p** |
+
+The model was handed every event the deterministic path found genuinely
+ambiguous, proposed ₹8,307 of discounts, and produced a *slightly lower*
+incremental lift than the taxonomy managed alone.
+
+Two things must be said before that becomes a claim. The difference is well
+inside the ±7pp interval, so this is one sample rather than a result. And it is
+not like-for-like: incentives are only ever proposed on the model path, so the
+model was attempting something the rules engine never tries at all.
+
+But cannibalisation came back at **₹0** — every discount went to a customer who
+would not otherwise have paid. The eligibility rule and the EV hurdle did their
+job. The model did not waste money; it simply did not beat the table.
+
+That is the measurement this project exists to be able to make. A recovery
+system that cannot tell you whether its most expensive component is earning its
+place is not measuring anything.
