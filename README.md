@@ -398,7 +398,7 @@ python scripts/run_eval.py        # grade it honestly
 python scripts/serve.py           # dashboard on :8000
 python scripts/robustness.py      # does it hold on other datasets?
 python scripts/verify_live.py     # one real Payment Link, notifications off
-pytest -q                         # 320 tests
+pytest -q                         # 322 tests
 ```
 
 Recoup refuses to start against a `rzp_live_` key. It sends messages and spends

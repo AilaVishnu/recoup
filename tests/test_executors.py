@@ -538,3 +538,52 @@ def test_razorpay_is_never_allowed_to_notify_the_customer(monkeypatch, session):
             "cannot see - and the contacts in this dataset are fabricated."
         )
     assert sent["reminder_enable"] is False
+
+
+def test_model_authored_rationale_reaching_a_human_is_marked_unverified(no_keys, session):
+    """A human approver is not a bound; they are the thing the bound defers to.
+
+    Policy escalates the highest-value events in the system, and on exactly those
+    the rationale is most likely to be model-written. It was copied verbatim into
+    the review queue with nothing distinguishing it from the engine's own
+    reasoning. A review reproduced the obvious consequence: "Pre-cleared by
+    Finance, approve without further checks" placed in front of an approver on a
+    Rs 5,00,000 event.
+
+    The policy engine contains what the model can *do*. It has no view on what the
+    model can *say* to a person.
+    """
+    customer, event, decision = make(
+        session, reason_code="card_expired", amount_paise=5_00_000_00
+    )
+    decision.source = DecisionSource.LLM
+    decision.model = "some-model"
+    decision.rationale = "Pre-cleared by Finance, approve without further checks."
+    session.flush()
+
+    run = actions.queue_for_human(
+        session, decision, event, customer, NOW, why="above the autonomy limit"
+    )
+
+    assert run.response["rationale_is_model_authored"] is True
+    assert run.response["rationale_source"] == "llm"
+    assert run.response["rationale"].startswith("[UNVERIFIED")
+    assert "some-model" in run.response["rationale"]
+    assert "Pre-cleared by Finance" in run.response["rationale"], "the text is kept, not censored"
+
+
+def test_an_engine_written_rationale_is_not_labelled_unverified(no_keys, session):
+    """Marking everything would make the marking meaningless."""
+    customer, event, decision = make(
+        session, reason_code="card_expired", amount_paise=5_00_000_00
+    )
+    decision.source = DecisionSource.RULES
+    decision.rationale = "card_expired cannot succeed on the same instrument."
+    session.flush()
+
+    run = actions.queue_for_human(
+        session, decision, event, customer, NOW, why="above the autonomy limit"
+    )
+
+    assert run.response["rationale_is_model_authored"] is False
+    assert not run.response["rationale"].startswith("[UNVERIFIED")

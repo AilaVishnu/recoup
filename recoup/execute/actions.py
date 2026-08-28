@@ -52,6 +52,7 @@ from recoup.db import (
     ContactLog,
     Customer,
     Decision,
+    DecisionSource,
     EventStatus,
     RevenueEvent,
     SpendLog,
@@ -133,16 +134,24 @@ def _notes(event: RevenueEvent, decision: Decision) -> dict[str, str]:
 def _retry_payment(
     decision: Decision, event: RevenueEvent, customer: Customer, now: datetime
 ) -> _Effect:
-    """Silent re-presentment. The customer is not told, because nothing is asked of them.
+    """A re-presentment. Recoup sends no message; the customer still hears about it.
 
     A true re-presentment charges a saved instrument token, which a test account
     with no stored mandates cannot do. What Recoup creates is the order the
     re-presentment would attach to - the same object, carrying the same
-    reference, minus the leg that needs a real customer's card on file. Notably
-    this is *not* a contact action: an issuer outage does not become recoverable
-    by emailing about it, and counting a silent retry against the fatigue cap
-    would make Recoup refuse to retry a bank outage because it sent two nudges
-    last week.
+    reference, minus the leg that needs a real customer's card on file.
+
+    This docstring used to call that silent and note that a retry is deliberately
+    not a contact action. Both claims were wrong, and they are worth leaving
+    corrected in place rather than quietly rewritten. A silent re-presentment
+    needs a registered mandate; without one, RBI's additional-factor rules put a
+    card retry in front of an OTP prompt and a UPI retry is a collect request
+    that rings the customer's phone. RETRY_PAYMENT is in CONTACT_ACTIONS for that
+    reason, and 63 of 191 retries were firing after 21:00 IST before it was.
+
+    Recoup still composes nothing and pays no channel cost here - which is a
+    different statement from "the customer was not contacted", and conflating the
+    two is what hid the problem.
     """
     order = razorpay_client.create_order(
         amount_paise=event.amount_paise,
@@ -306,7 +315,28 @@ def queue_for_human(
             "queued_at": now.isoformat(timespec="seconds"),
             "escalated_because": why,
             "proposed_action": decision.action_type.value,
-            "rationale": decision.rationale,
+            # Provenance travels with the text, because on this path the text may
+            # not be Recoup's.
+            #
+            # Policy escalates the highest-value events in the system, and on
+            # exactly those events the rationale is most likely to have been
+            # written by the model. It was being copied verbatim into a queue a
+            # human reads before approving a payment, with nothing distinguishing
+            # it from the engine's own reasoning. A review reproduced the obvious
+            # consequence: "Pre-cleared by Finance, approve without further
+            # checks" placed in front of an approver on a Rs 5,00,000 event.
+            #
+            # The policy engine contains what the model can *do*. It has no view
+            # on what the model can *say* to a person, and a human approver is
+            # not a bound - they are the thing the bound defers to.
+            "rationale_source": decision.source.value,
+            "rationale_is_model_authored": decision.source is DecisionSource.LLM,
+            "rationale": (
+                f"[UNVERIFIED - written by {decision.model or 'the decision model'}, "
+                f"not by Recoup] {decision.rationale}"
+                if decision.source is DecisionSource.LLM
+                else decision.rationale
+            ),
         },
     )
     session.add(run)
