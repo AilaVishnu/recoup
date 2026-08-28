@@ -355,28 +355,33 @@ Against real traffic the priors would be wrong on day one, which is what
 
 | | |
 |---|---|
-| **Incremental recovery rate** | **+6.5pp** (95% CI −0.7 … +13.8) |
-| Incremental recovered | ₹91,830 across 43 events |
-| Gross recovery rate | 26.4% — *what a system without a holdout would claim* |
+| **Incremental recovery rate** | **+7.2pp** (95% CI −0.0 … +14.5) |
+| Incremental recovered | ₹1.3L across 46 events |
+| Gross recovery rate | 27.1% — *what a system without a holdout would claim* |
 | Control arm recovery rate | 19.9% — *with no help at all* |
-| Cost | ₹812 (₹784 redeemed incentive + ₹28 channel) |
-| Cannibalisation | ₹0 |
 | Events harmed | 0 |
-| Sensitivity range | +2.5pp (pessimistic) → +9.6pp (optimistic) |
-| Decisions | 439 taxonomy, 161 model |
+| Sensitivity range | +2.5pp (pessimistic) → +10.5pp (optimistic) |
+| Decisions | 600 taxonomy, 0 model |
+
+Taxonomy-only, which is what a reviewer reproduces from a clean checkout with no
+keys. Model-live figures are in §15 and are not independently checkable.
 
 Reproducible from a clean checkout with no keys configured.
 
 **Caveats, stated rather than buried:**
 
-- **The interval includes zero** (−0.7 … +13.8pp). At 600 events this sample
-  cannot rule out no effect. The report leads with the interval rather than the
+- **The interval includes zero** (−0.0 … +14.5pp — it clears by less than a
+  basis point). At 600 events this sample cannot rule out no effect. The report leads with the interval rather than the
   point estimate, and the dashboard says "behind" when the estimate is behind.
-- **This figure has moved three times, never once because a number was
-  massaged** (§12, §12.1, §15). +7.9pp until an attempt cap that could never fire
-  began denying 13 events it always should have; +7.5pp until the fatigue slot
-  began being reserved before the send; +6.5pp once the model was genuinely
-  deciding rather than falling back to the taxonomy.
+- **This figure has moved several times, never once because a number was
+  massaged** (§12, §12.1, §15). An attempt cap that could never fire, a fatigue
+  slot reserved after the send rather than before, a model that had been falling
+  back to the taxonomy without saying so.
+
+  And, bluntly: until the generator stopped anchoring events to the wall clock,
+  the headline moved *between identical runs*. Figures published before that
+  commit are not reproducible and should not be compared with these — which is
+  why this one is quoted alongside a fixed epoch and a test that enforces it.
 - **Cannibalisation is ₹0, and this time it was measured rather than
   unexercised.** ₹8,307 of discount was committed and ₹784 redeemed, and none of
   it landed on a customer who would have paid anyway. Earlier runs reported ₹0

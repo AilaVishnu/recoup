@@ -171,37 +171,43 @@ Seed 42 · 600 events · ₹34.5L at risk
 
 | | |
 |---|---|
-| **Incremental recovery rate** | **+6.5pp** (95% CI −0.7 … +13.8) |
-| Incremental recovered | **₹91,830** across 43 events |
-| Gross recovery rate | 26.4% — *what a system without a holdout would claim* |
+| **Incremental recovery rate** | **+7.2pp** (95% CI −0.0 … +14.5) |
+| Incremental recovered | **₹1.3L** across 46 events |
+| Gross recovery rate | 27.1% — *what a system without a holdout would claim* |
 | Control arm | 19.9% — *recovered with no help at all* |
-| Net after cost | ₹91,018 |
-| Cannibalisation | **₹0** — no discount reached a customer who'd have paid anyway |
 | Events harmed | 0 |
-| Sensitivity range | +2.5pp (pessimistic) → +9.6pp (optimistic) |
-| Decisions | 439 by the taxonomy, **161 by the model** |
+| Sensitivity range | +2.5pp (pessimistic) → +10.5pp (optimistic) |
 
-Figures above are from a run with the model live. The pipeline also runs with
-**no keys configured at all** — `seed.py && run_pipeline.py && run_eval.py` on a
-clean checkout gives +7.5pp with every decision taken by the taxonomy. Keys
-upgrade simulated execution to real Razorpay calls and taxonomy-only decisions
-to model-assisted ones; they do not gate the run.
+**This is the number you get with no keys configured at all** — every decision
+taken by the taxonomy. `seed.py && run_pipeline.py && run_eval.py` on a clean
+checkout reproduces it exactly, because the generator is anchored to a fixed
+epoch rather than the wall clock ([why that matters](tests/test_reproducibility.py)).
+Figures with the decision model live are reported separately below, since they
+require a key and are therefore not something a reviewer can check by cloning.
 
-The gap between 26.4% and +6.5pp is the entire point of this project. A recovery
+Keys upgrade simulated execution to real Razorpay calls and taxonomy-only
+decisions to model-assisted ones. They do not gate the run.
+
+The gap between 27.1% and +7.2pp is the entire point of this project. A recovery
 tool without a holdout would have reported the first number.
 
 **Caveats, stated rather than buried:**
 
-- **The interval includes zero** (−0.7pp at the low end). At 600 events this
-  sample cannot rule out no effect. The report leads with the interval rather
+- **The interval includes zero** (−0.0pp at the low end — it clears by less
+  than a basis point). At 600 events this sample cannot rule out no effect. The report leads with the interval rather
   than the point estimate for that reason, and the dashboard says "behind" when
   the point estimate is behind.
-- **This number has moved three times and never once because a number was
-  massaged.** +7.9pp until an attempt cap that could never fire began denying 13
-  events it always should have; +7.5pp until the fatigue slot started being
-  reserved before the send; +6.5pp once the model was actually deciding rather
-  than falling back. A figure that only looks good until you fix your own bugs
-  is not worth defending.
+- **This number has moved several times and never once because a figure was
+  massaged.** An attempt cap that could never fire, a fatigue slot reserved
+  after the send instead of before, a model that had been silently falling back
+  to the taxonomy. Each fix moved it.
+
+  It is worth being blunt about one of those. Until the generator stopped
+  anchoring events to the wall clock, the headline **also moved between
+  identical runs** — so any figure published before that commit is not
+  reproducible and should not be compared against these. That is why the number
+  above is quoted with a fixed epoch and a test that enforces it, rather than
+  with a changelog of values nobody could re-derive.
 
 ### The model did not beat the lookup table
 

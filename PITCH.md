@@ -109,16 +109,16 @@ is a bad five minutes, and it is avoidable.
 
 *Switch to the terminal showing the eval report.*
 
-> Gross recovery is 26.4%. The control arm recovered 19.9% **with no help at
-> all**. So the honest number is the difference: **six and a half percentage
-> points**, about ₹92,000 that would not have come back.
+> Gross recovery is 27.1%. The control arm recovered 19.9% **with no help at
+> all**. So the honest number is the difference: **seven point two percentage
+> points**, about ₹1.3 lakh that would not have come back.
 >
-> A tool without a holdout would have put 26.4% on the slide.
+> A tool without a holdout would have put 27.1% on the slide.
 
 *Point at the CI.*
 
-> And I have to say this: **the interval includes zero** — it runs from minus
-> nought point seven. At 600 events this sample can't rule out no effect. The
+> And I have to say this: **the interval includes zero.** It clears by less than
+> a basis point. At 600 events this sample can't rule out no effect. The
 > report leads with the interval rather than the point estimate for exactly that
 > reason, and the dashboard says "behind" when the estimate is behind.
 >
