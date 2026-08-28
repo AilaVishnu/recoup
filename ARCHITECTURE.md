@@ -555,8 +555,21 @@ assumptions fixed.
 | Interval excludes zero | **15 of 28** |
 | At or above +5pp | 21 of 28 |
 
-**Two datasets came out negative** (seeds 5 and 41). That matters more than the
-median does, and it is here rather than in a footnote.
+**The arm-difference estimator came out negative on two datasets** (seeds 5 and
+41). That matters more than the median does, and it is here rather than in a
+footnote.
+
+It also needs one qualification, because the unqualified sentence says something
+false. On both of those datasets Recoup *did* cause recoveries — 30 events and
+₹49,918 on seed 5, 25 events and ₹42,725 on seed 41, measured against the frozen
+per-event counterfactual. The estimator went negative because those control arms
+recovered unusually well, not because the system failed. By the exact causal
+measure, every one of the 28 datasets is positive.
+
+Which of those two facts you lead with is a real choice. The arm difference is
+the only quantity a live merchant could compute, so it is the honest headline —
+but reporting it without saying that the exact measure disagrees would leave a
+reader believing Recoup lost money on two datasets, and it did not.
 
 It also matters *how* it was found. The first version of this check ran five
 seeds, all five were positive, and this section previously said the direction held
