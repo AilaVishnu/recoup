@@ -289,9 +289,27 @@ is the one that matters.
 
 The subsystem the project's credibility rests on.
 
-**Frozen rolls.** Each event's luck is drawn once at generation time and reused.
-Treatment and control therefore face *identical* luck, so measured lift reflects
-the decision rather than sampling noise.
+**Frozen rolls.** Each event's luck is drawn once at generation time and reused,
+so the *same event* faces identical luck whether or not it is acted on. That is
+what makes a per-event counterfactual available: for any treated event, "would
+this have recovered untouched?" has an exact answer rather than an estimated one.
+
+**What that does not do is remove sampling noise from the lift.** This sentence
+previously claimed it did, and `metrics.py` contradicts it three paragraphs into
+its own docstring. The frozen roll fixes the luck *within* an event; the arm
+difference compares two *different sets of events*, and which events landed in
+which arm is exactly the randomisation the interval is measuring. So:
+
+| | sampling error |
+|---|---|
+| `incremental_recovered_paise` (sum of AGENT attributions) | **none** — exact, and available only because this is a simulation |
+| `lift` (arm difference, ± CI) | **full** — the only quantity a real deployment could compute |
+
+The 28-dataset robustness run is this distinction made visible: the arm
+difference moves enormously across datasets while the count of events actually
+caused moves by a factor of two. Same system, same decisions, two measures with
+very different variance — and the noisy one is the honest headline, because it
+is the one a merchant could reproduce.
 
 **Attribution.** An event is credited to the agent only when it recovered **and**
 the counterfactual says it would not have. Recovering *after* an action is not
@@ -324,7 +342,7 @@ This section is the one to read before believing any number.
 failure reason, respects its bounds, refuses to retry risk declines, times
 liquidity retries sensibly, defers out of quiet hours, and never exceeds budget.
 These are properties of the code and hold regardless of any simulation
-parameter. 280 tests cover them, including 27 adversarial bypass attempts.
+parameter. 284 tests cover them, including 27 adversarial bypass attempts.
 
 **Simulated — the rupee figures.** Recoup has no access to a real merchant's
 post-failure customer behaviour, so outcomes come from `seed/world.py`. Its lift
@@ -493,7 +511,7 @@ python scripts/run_eval.py        # grade it honestly
 python scripts/serve.py           # dashboard on :8000
 python scripts/robustness.py      # five datasets
 python scripts/verify_live.py     # one real Payment Link
-pytest -q                         # 280 tests
+pytest -q                         # 284 tests
 ```
 
 Recoup refuses to start against a `rzp_live_` key. It sends messages and spends
