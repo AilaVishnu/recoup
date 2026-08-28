@@ -67,6 +67,16 @@ _client: razorpay.Client | None = None
 _client_key: str | None = None
 
 
+NOTIFY_CHANNELS = ("sms", "email", "whatsapp")
+"""Every channel Razorpay can message a customer on, which Recoup must silence.
+
+Named rather than inlined so scripts/verify_live.py can assert the request
+carried all of them. A channel merely absent from the payload reads as false on
+the readback - Razorpay applies the merchant's account default - so "the fetch
+came back false" is a statement about the account, not about this code.
+"""
+
+
 class RecoupExecutionError(RuntimeError):
     """One exception type for every way a Razorpay call can fail.
 
@@ -331,7 +341,14 @@ def create_payment_link(
             "email": customer.email,
             "contact": customer.contact,
         },
-        "notify": {"sms": False, "email": False},
+        # All three channels, explicitly. whatsapp was omitted and the readback
+        # still showed it false - because false is the account default, not
+        # something this request set. A merchant with WhatsApp notifications
+        # enabled would have had Razorpay message every fabricated Faker number
+        # in the seed set, on Razorpay's schedule, outside quiet hours and the
+        # fatigue cap and the cost ledger. The verification script was reading
+        # the account back and calling it a check on the payload.
+        "notify": {channel: False for channel in NOTIFY_CHANNELS},
         "reminder_enable": False,
         "expire_by": int(target.timestamp()),
         "notes": {k: str(v) for k, v in (notes or {}).items()},

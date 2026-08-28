@@ -307,10 +307,16 @@ which is not the same claim as a 200 from the service.
 It also asserts the property that actually matters. Seeded customers carry
 fabricated emails and phone numbers, and Razorpay will send a Payment Link to
 whatever contact details it is handed, on its own schedule — outside quiet hours,
-the weekly contact cap and the cost ledger. So every link Recoup creates sets
-`notify.email`, `notify.sms` and `reminder_enable` to false, and the script reads
-those back off the created object rather than trusting the request carried them.
-Confirmed false on all three channels.
+the weekly contact cap and the cost ledger. So every link Recoup creates silences **every channel Razorpay offers** —
+`sms`, `email` and `whatsapp` — plus `reminder_enable`, and the script checks the
+request carried all of them.
+
+Reading the values back is not enough on its own, and getting that wrong is how
+`whatsapp` went unsilenced for several commits. It was absent from every request,
+the readback reported it false because that is the *merchant account's* default,
+and the script called it verified — it was verifying the account. A merchant with
+WhatsApp notifications switched on would have had Razorpay message every
+fabricated number in the seed set.
 
 That check failing would not be cosmetic. It would mean a synthetic dataset had
 begun emailing real inboxes at addresses that happen to exist.

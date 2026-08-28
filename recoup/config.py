@@ -95,8 +95,14 @@ class Settings(BaseSettings):
     db_url: str = Field(default="sqlite:///data/recoup.db", alias="RECOUP_DB_URL")
     seed: int = Field(default=42, alias="RECOUP_SEED")
 
-    dry_run: bool = Field(default=False, alias="RECOUP_DRY_RUN")
+    dry_run: bool = Field(default=True, alias="RECOUP_DRY_RUN")
     """When true, executors log intended calls instead of hitting Razorpay.
+
+    Defaults to TRUE. It defaulted to False while .env.example said "defaults to
+    true", so anyone running with credentials in the environment and no .env file
+    - a CI job, a container, a shell with exports - went live believing they were
+    not. The safe default is the one that costs a dry run, not the one that
+    creates a few hundred Payment Links against a real account.
 
     Useful for replaying the pipeline over a seeded dataset without creating
     hundreds of Payment Links in the test account.

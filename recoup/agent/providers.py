@@ -241,8 +241,26 @@ _KEY_ENV = {
 
 
 def active_provider() -> str:
-    name = (config.get_settings().llm_provider or "anthropic").strip().lower()
-    return name if name in _ADAPTERS else "anthropic"
+    """Which adapter answers. Inferred from the endpoint when not stated.
+
+    An explicit RECOUP_LLM_PROVIDER wins. Failing that, a configured base_url
+    means an OpenAI-compatible endpoint, because that is the only reason to set
+    one - the Anthropic adapter never reads it.
+
+    Without that inference, a .env carrying a Gemini or Groq base_url and key but
+    missing the provider line resolved to "anthropic", and key_available() then
+    copied that third-party key into ANTHROPIC_API_KEY and sent it to
+    api.anthropic.com. It failed quietly - a 401, a fallback to the taxonomy, and
+    a setup check still reporting the model reachable - which is the worst way for
+    a credential to go somewhere it was not meant to go.
+    """
+    settings = config.get_settings()
+    stated = (settings.llm_provider or "").strip().lower()
+    if stated in _ADAPTERS:
+        return stated
+    if not stated and settings.llm_base_url:
+        return "openai"
+    return "anthropic"
 
 
 def key_available() -> bool:

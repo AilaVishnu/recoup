@@ -17,17 +17,24 @@ Recoup's seeded customers carry fabricated email addresses and phone numbers.
 Razorpay will happily send a Payment Link to whatever contact details it is
 given, on its own schedule, outside every bound this project enforces - quiet
 hours, the weekly contact cap, the cost ledger. So every link Recoup creates
-sets notify.email, notify.sms and reminder_enable to false, and this script
-reads them back off the created object rather than trusting that the request
-carried them.
+silences every channel Razorpay offers, and this script checks that the request
+carried all of them.
+
+Reading the values back is not sufficient on its own, and getting that wrong is
+how whatsapp went unsilenced. It was absent from every request Recoup made, the
+readback reported it false because that is the merchant account's default, and
+this script called it verified. It was verifying the account. A merchant with
+WhatsApp notifications switched on would have had Razorpay message every
+fabricated number in the seed set.
 
 That check failing is not a cosmetic problem. It means a synthetic dataset has
-started emailing real inboxes at addresses that happen to exist.
+started messaging real inboxes and real phones at addresses that happen to exist.
 """
 
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -80,7 +87,11 @@ def main() -> int:
             customer=customer,
             description="Recoup live-path verification",
             notes={"recoup_verification": "true"},
-            reference_id="recoup_live_check",
+            # Unique per run. Razorpay enforces reference_id uniqueness per
+            # account, so a fixed value made this script single-use: it passed
+            # once and then failed forever with a 400 that says nothing about
+            # whether the integration works.
+            reference_id=f"recoup_live_check_{int(time.time())}",
         )
     except Exception as exc:  # noqa: BLE001
         console.print(f"{FAIL} create_payment_link failed: {exc}\n")
@@ -94,12 +105,24 @@ def main() -> int:
     fetched = rc.fetch_payment_link(link["id"])
     console.print(f"{OK} round-trip fetch, status={fetched.get('status')}")
 
-    notify = fetched.get("notify") or {}
+    # Check the payload we SENT, not only what Razorpay hands back.
+    #
+    # The readback alone is not a check on this code. A channel Recoup never set
+    # still returns false if the merchant's account happens to default that way -
+    # which is exactly what happened with whatsapp: absent from every request,
+    # reported false on every fetch, and this script called it verified. It was
+    # verifying the account.
+    from recoup.execute.razorpay_client import NOTIFY_CHANNELS
+
+    fetched_notify = fetched.get("notify") or {}
     reminders = fetched.get("reminder_enable")
-    silent = not any(notify.values()) and not reminders
+    missing = [c for c in NOTIFY_CHANNELS if c not in fetched_notify]
+    silent = not any(fetched_notify.values()) and not reminders and not missing
+    notify = fetched_notify
 
     if silent:
         console.print(f"{OK} Razorpay will not contact the customer")
+        console.print(f"     every channel Recoup knows about is set: {sorted(NOTIFY_CHANNELS)}")
         console.print(
             f"     notify={notify}  reminder_enable={reminders}"
         )
@@ -110,6 +133,11 @@ def main() -> int:
         )
     else:
         console.print(f"{FAIL} Razorpay WILL contact the customer")
+        if missing:
+            console.print(
+                f"     channels absent from the request: {missing} - Razorpay "
+                "applies the account default for these, which Recoup does not control"
+            )
         console.print(f"     notify={notify}  reminder_enable={reminders}")
         console.print(
             "     [red]Stop. A synthetic dataset is about to message real "

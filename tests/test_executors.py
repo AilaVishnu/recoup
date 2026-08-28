@@ -511,5 +511,19 @@ def test_razorpay_is_never_allowed_to_notify_the_customer(monkeypatch, session):
     customer, event, _ = make(session)
     razorpay_client.create_payment_link(1_000_00, customer, "recovery")
 
-    assert sent["notify"] == {"sms": False, "email": False}
+    # Asserted as a property, not as a dictionary. Exact equality against
+    # {"sms": False, "email": False} is what let `whatsapp` go unset for as long
+    # as it did: the channel was missing from the payload, Razorpay's readback
+    # showed it false because that is the *account* default, and this test
+    # actively cemented the omission - adding the missing channel would have
+    # failed it. A guard that breaks when the guarded set grows is guarding the
+    # wrong thing.
+    notify = sent["notify"]
+    assert not any(notify.values()), f"a notification channel is enabled: {notify}"
+    for channel in ("sms", "email", "whatsapp"):
+        assert channel in notify, (
+            f"{channel} is not set in the request. Razorpay will apply the "
+            "merchant's account default, which Recoup does not control and "
+            "cannot see - and the contacts in this dataset are fabricated."
+        )
     assert sent["reminder_enable"] is False
