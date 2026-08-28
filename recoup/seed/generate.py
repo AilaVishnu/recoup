@@ -68,6 +68,28 @@ anything. At this sample size the second is worse.
 
 RECOVERY_WINDOW_DAYS = 7
 
+SIMULATION_EPOCH = datetime(2026, 8, 1, 12, 0)
+"""The instant the synthetic merchant's clock is anchored to. Fixed, not now().
+
+This used to read datetime.now(), which quietly broke the reproducibility the
+rest of the project claims. Event timestamps are placed relative to the anchor,
+so with a wall-clock anchor the *hour of day* every event lands on moves with
+when you happen to run the seeder - and hour of day decides quiet-hours
+deferral, which decides which actions fire, which decides the outcome. Two runs
+of seed 42 hours apart produced different headline numbers, while
+recoup/pipeline.py claimed in its own docstring that "the same seed produces the
+same timestamps, so two runs of the report are comparable".
+
+A fixed epoch makes that claim true. The consequence is that generated events
+are always dated around this date rather than around today, which is the right
+trade: a demo dataset that reads "13 Aug 2026" and reproduces exactly is worth
+more than one that reads "yesterday" and does not.
+
+Everything downstream stays relative to the event's own timestamp, so nothing
+here depends on the epoch being close to the present.
+"""
+
+
 
 def _weighted(rng: random.Random, choices: list[tuple]) -> object:
     population = [c[0] for c in choices]
@@ -100,7 +122,7 @@ def generate(
 
     init_db(drop=drop)
     session = get_session()
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = SIMULATION_EPOCH
 
     # ---- Customers -------------------------------------------------------
     customers: list[Customer] = []

@@ -13,8 +13,11 @@ elapsed time, and the liquidity-window logic - the most interesting timing
 decision in the project - would never fire. Instead each event is processed at
 the moment its action window opens, which is what a live scheduler would do.
 
-That makes the run reproducible: the same seed produces the same timestamps,
-so two runs of the report are comparable.
+That makes the run reproducible: the same seed produces the same timestamps, so
+two runs of the report are comparable. That was not true until the generator
+stopped anchoring events to the wall clock - see SIMULATION_EPOCH in
+recoup/seed/generate.py, and tests/test_reproducibility.py, which exists because
+the failure was silent. Nothing errored; the numbers simply moved.
 
 On deferral versus denial
 -------------------------

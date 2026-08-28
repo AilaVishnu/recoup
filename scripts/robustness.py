@@ -101,6 +101,11 @@ def run_one(seed: int, events: int) -> dict | None:
         "control_rate": overall.control_recovery_rate,
         "incremental_paise": overall.incremental_recovered_paise,
         "net_paise": overall.net_paise,
+        # The count of events the frozen counterfactual says recovered ONLY
+        # because Recoup acted. A real deployment could never compute this; in
+        # the sandbox it is exact, and it is the cleanest available measure of
+        # what the system actually did rather than what an estimator inferred.
+        "agent_n": overall.incremental_n,
     }
 
 
@@ -133,7 +138,8 @@ def main() -> int:
     t = Table(title="Per dataset", title_style="bold", box=None, padding=(0, 2))
     for col, just in (
         ("seed", "right"), ("lift", "right"), ("95% CI", "right"),
-        ("gross", "right"), ("control", "right"), ("incremental", "right"),
+        ("gross", "right"), ("control", "right"), ("caused", "right"),
+        ("incremental", "right"),
     ):
         t.add_column(col, justify=just)
     for r in rows:
@@ -143,6 +149,7 @@ def main() -> int:
             f"{r['ci_low'] * 100:+.1f} .. {r['ci_high'] * 100:+.1f}",
             f"{r['gross_rate'] * 100:.1f}%",
             f"{r['control_rate'] * 100:.1f}%",
+            str(r["agent_n"]),
             f"Rs {r['incremental_paise'] / 100:,.0f}",
         )
     console.print(t)
@@ -181,6 +188,42 @@ def main() -> int:
             f"{len(lifts) - positive} dataset(s) came out negative. That belongs "
             "in the README beside the headline, not in a footnote."
         )
+
+    # The spread above is mostly the estimator, not the system.
+    #
+    # The arm-difference lift is the only quantity a real deployment could
+    # compute, and at this control-arm size it is noisy: it moves with whatever
+    # the holdout happened to do. The count of agent-caused recoveries is exact
+    # here, because the frozen roll gives a per-event counterfactual, and it is
+    # far steadier. Reporting the ninefold spread without this comparison would
+    # imply the system is unstable, when what is unstable is the measurement.
+    #
+    # This is an argument for a larger holdout or more events, not for
+    # distrusting the pipeline - and it is worth saying that the stable number is
+    # the one a live merchant could not have.
+    agents = [r["agent_n"] for r in rows if r["agent_n"]]
+    if len(agents) > 1 and len(lifts) > 1:
+        lift_spread = max(lifts) / max(min(lifts), 0.1)
+        agent_spread = max(agents) / max(min(agents), 1)
+        console.print()
+        console.print("  [bold]What moved: the estimator, not the system.[/]")
+        console.print(
+            f"    arm-difference lift     {min(lifts):+.1f} to {max(lifts):+.1f}pp"
+            f"   ({lift_spread:.0f}x spread)"
+        )
+        console.print(
+            f"    events actually caused  {min(agents)} to {max(agents)}"
+            f"            ({agent_spread:.1f}x spread)"
+        )
+        console.print(
+            "\n  [dim]Lift tracks whatever the holdout happened to do - the "
+            "lowest-lift dataset is the one whose control arm recovered best, not "
+            "the one where Recoup did least. The per-event count is exact only "
+            "because the frozen roll gives a counterfactual for every event, which "
+            "a live merchant could never have. Read the spread as a statement "
+            "about the estimator at this sample size.[/]"
+        )
+
     console.print()
     return 0
 
