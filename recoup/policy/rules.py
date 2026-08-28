@@ -177,21 +177,6 @@ class Check:
         }
 
 
-def _naive_utc(value: datetime, field_name: str) -> datetime:
-    """Normalise to naive UTC, the one representation the schema stores.
-
-    Not pedantry. db.utcnow() returns an *aware* datetime while every DateTime
-    column holds naive values, so an aware `now` reaching _rule_timing_floor
-    raises "can't compare offset-naive and offset-aware datetimes" - and a raise
-    inside review() used to mean no PolicyReview row at all. Converting at the
-    boundary makes the mismatch impossible instead of merely unlikely.
-    """
-    if not isinstance(value, datetime):
-        raise TypeError(f"{field_name} must be a datetime, got {type(value).__name__}")
-    if value.tzinfo is not None:
-        return value.astimezone(timezone.utc).replace(tzinfo=None)
-    return value
-
 
 @dataclass
 class ReviewContext:
